@@ -99,12 +99,17 @@ async def run(config=None) -> None:
             _activate_timeout_task.cancel()
         await sm.async_transition(ReaderState.ACTIVE, "activate")
         logger.info("ws_activate", f"timeout={msg.timeout_seconds}s")
-        _activate_timeout_task = asyncio.create_task(_activate_timeout_cb(msg.timeout_seconds))
+        # Track the global activation timeout
+        sm.set_activation_timeout(msg.timeout_seconds)
+        # Only create a timeout task if timeout > 0
+        if msg.timeout_seconds > 0:
+            _activate_timeout_task = asyncio.create_task(_activate_timeout_cb(msg.timeout_seconds))
 
     async def on_deactivate(msg: DeactivateMessage) -> None:
         nonlocal _activate_timeout_task
         if _activate_timeout_task and not _activate_timeout_task.done():
             _activate_timeout_task.cancel()
+        sm.clear_activation_timeout()
         current = sm.state
         if current in (ReaderState.ACTIVE, ReaderState.READING, ReaderState.AWAITING_RESULT):
             await sm.async_transition(ReaderState.HIBERNATED, "deactivate")
@@ -180,6 +185,26 @@ async def run(config=None) -> None:
             from reader.models import UidScannedMessage
 
             await ws_client.send_model(UidScannedMessage(uid=uid))
+
+        # Wait for server response within remaining activation timeout.
+        # If timeout expires, show "Timed Out" and hibernate.
+        remaining = sm.remaining_timeout_seconds
+        if remaining is not None and remaining > 0:
+            # Schedule a timeout handler
+            async def _handle_server_timeout():
+                await asyncio.sleep(remaining)
+                if sm.state == ReaderState.AWAITING_RESULT:
+                    logger.warn("server_timeout", f"No result within {remaining}s")
+                    # Show timeout message
+                    await loop.run_in_executor(
+                        None, lcd.display, "Timed Out", "No response", True
+                    )
+                    await loop.run_in_executor(None, buzzer.result_error)
+                    await asyncio.sleep(2)
+                    # Go back to hibernated
+                    await sm.async_transition(ReaderState.HIBERNATED, "server timeout")
+
+            asyncio.create_task(_handle_server_timeout())
 
     rc522 = RC522Reader(on_scan=on_uid_scanned)
     rc522.start()

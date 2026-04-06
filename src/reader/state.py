@@ -63,6 +63,10 @@ class StateManager:
         self._reconnect_attempts: int = 0
         self._pre_failure_state: ReaderState = ReaderState.HIBERNATED
 
+        # Activation timeout tracking
+        self._activation_time: float | None = None  # When ACTIVE was entered (monotonic)
+        self._activation_timeout_seconds: int | None = None  # Total timeout in seconds
+
         # Thread lock for sync contexts (hardware threads)
         self._thread_lock = threading.Lock()
         # Asyncio lock for async contexts (WS client, dashboard)
@@ -127,6 +131,18 @@ class StateManager:
     @property
     def pre_failure_state(self) -> ReaderState:
         return self._pre_failure_state
+
+    @property
+    def remaining_timeout_seconds(self) -> int | None:
+        """Get remaining timeout in ACTIVE state. Returns None if no timeout is set."""
+        if self._activation_time is None or self._activation_timeout_seconds is None:
+            return None
+        if self._activation_timeout_seconds == 0:
+            # Timeout of 0 means no hibernation
+            return None
+        elapsed = int(time.monotonic() - self._activation_time)
+        remaining = self._activation_timeout_seconds - elapsed
+        return max(0, remaining)
 
     # ------------------------------------------------------------------
     # State transitions
@@ -203,6 +219,16 @@ class StateManager:
     def record_scan(self, uid: str) -> None:
         self._last_scan = datetime.now(tz=timezone.utc)
         self._last_uid = uid
+
+    def set_activation_timeout(self, timeout_seconds: int) -> None:
+        """Record activation time and timeout duration. 0 = no hibernation."""
+        self._activation_time = time.monotonic()
+        self._activation_timeout_seconds = timeout_seconds
+
+    def clear_activation_timeout(self) -> None:
+        """Clear activation time and timeout."""
+        self._activation_time = None
+        self._activation_timeout_seconds = None
 
 
 _manager: StateManager | None = None
