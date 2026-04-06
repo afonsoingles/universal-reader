@@ -53,7 +53,7 @@ async def run(config=None) -> None:
             await loop.run_in_executor(None, lcd.off)
         elif new_state == ReaderState.ACTIVE:
             # Start with backlight OFF when becoming active
-            await loop.run_in_executor(None, lcd.display, "Universal Reader", f"Reader {rn}", False)
+            await loop.run_in_executor(None, lcd.display, "Universal Reader", f"Reader {rn}", True)
         elif new_state == ReaderState.READING:
             await loop.run_in_executor(None, lcd.display, "Universal Reader", "Scan item...", True)
         elif new_state == ReaderState.AWAITING_RESULT:
