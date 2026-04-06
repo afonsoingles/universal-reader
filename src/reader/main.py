@@ -43,6 +43,12 @@ async def run(config=None) -> None:
 
     logger.info("startup", f"Universal Reader starting — dashboard port {config.dashboard_port}")
 
+    # Store hardware refs globally for cleanup on exit
+    import sys
+    sys.lcd = lcd  # type: ignore[attr-defined]
+    sys.buzzer = buzzer  # type: ignore[attr-defined]
+    sys.rc522_reader = None  # type: ignore[attr-defined]
+
     # ------------------------------------------------------------------
     # LCD update on state change
     # ------------------------------------------------------------------
@@ -234,6 +240,10 @@ async def run(config=None) -> None:
     rc522 = RC522Reader(on_scan=on_uid_scanned)
     rc522.start()
 
+    # Store RC522 ref for cleanup
+    import sys
+    sys.rc522_reader = rc522  # type: ignore[attr-defined]
+
     # ------------------------------------------------------------------
     # Startup hardware checkup
     # ------------------------------------------------------------------
@@ -304,7 +314,38 @@ async def run(config=None) -> None:
 
 
 def main() -> None:
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        logger.info("shutdown", "KeyboardInterrupt received, cleaning up...")
+        
+        # Clean up hardware
+        import sys
+        try:
+            if hasattr(sys, "lcd"):
+                lcd = sys.lcd  # type: ignore[attr-defined]
+                lcd.off()
+                logger.info("shutdown_lcd_off", "LCD turned off")
+        except Exception as exc:  # noqa: BLE001
+            logger.warn("shutdown_lcd_error", str(exc))
+        
+        try:
+            if hasattr(sys, "rc522_reader"):
+                rc522 = sys.rc522_reader  # type: ignore[attr-defined]
+                if rc522:
+                    rc522.stop()
+                    logger.info("shutdown_rc522_stop", "RC522 stopped")
+        except Exception as exc:  # noqa: BLE001
+            logger.warn("shutdown_rc522_error", str(exc))
+        
+        try:
+            import RPi.GPIO as GPIO  # type: ignore[import]
+            GPIO.cleanup()
+            logger.info("shutdown_gpio_cleanup", "GPIO cleaned up")
+        except Exception as exc:  # noqa: BLE001
+            logger.warn("shutdown_gpio_cleanup_error", str(exc))
+        
+        print("\n[SHUTDOWN] Display cleared, GPIO cleaned, exiting...")
 
 
 if __name__ == "__main__":
