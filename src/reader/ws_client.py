@@ -143,6 +143,9 @@ class WSClient:
             # Restore pre-failure state on successful re-registration
             if self._sm.state == ReaderState.SYSTEM_FAILURE:
                 target = self._sm.pre_failure_state
+                # Map scanning states to ACTIVE since they require server command anyway
+                if target in (ReaderState.READING, ReaderState.AWAITING_RESULT):
+                    target = ReaderState.ACTIVE
                 logger.info("ws_restoring_state", f"Restoring from SYSTEM_FAILURE to {target}")
                 await self._sm.async_transition(target, "ws reconnected")
             else:
