@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Debug — Universal Reader{% endblock %}
+{% block content %}
+<h1>Universal Reader — Debug</h1>
+<nav>
+    <a href="/">Dashboard</a>
+    <a href="/debug">Debug</a>
+    <a href="/logout">Logout</a>
+</nav>
+
+{% if scan_in_progress %}
+<div class="warn-box">
+    ⚠️ <strong>Scan in progress ({{ state }})</strong> — some debug actions are blocked to prevent conflicts.
+</div>
+{% endif %}
+
+<!-- Live State Inspector -->
+<h2>Live State</h2>
+<div class="card">
+    <pre id="live-state" style="font-size:0.8rem; color:#94a3b8; line-height:1.6;">Loading…</pre>
+</div>
+
+<!-- Raw UID Reader -->
+<h2>Raw UID Reader</h2>
+<div class="card">
+    <p style="font-size:0.85rem; color:#94a3b8; margin-bottom:1rem;">Reads the next tag from RC522 without sending to Inventory.</p>
+    <button class="btn btn-secondary" onclick="readUid()" {% if scan_in_progress %}disabled{% endif %}>Read Next Tag</button>
+    <div id="uid-result" style="margin-top:1rem; font-family:monospace; font-size:1rem; color:#86efac;"></div>
+</div>
+
+<!-- Simulate Inventory Messages -->
+<h2>Simulate Inventory Messages</h2>
+<div class="card">
+    <div class="actions" style="flex-direction:column; align-items:flex-start; gap:1rem;">
+
+        <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="simulate({type:'activate', timeout_seconds:parseInt(document.getElementById('timeout').value)||30})">activate</button>
+            <label style="display:inline; margin:0; color:#e2e8f0;">timeout:</label>
+            <input type="number" id="timeout" value="30" style="width:80px;">
+        </div>
+
+        <button class="btn btn-secondary" onclick="simulate({type:'deactivate'})">deactivate</button>
+
+        <button class="btn btn-secondary" onclick="simulate({type:'read'})"
+            {% if scan_in_progress %}disabled{% endif %}>read</button>
+
+        <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+            <span style="font-size:0.85rem; color:#94a3b8;">result:</span>
+            <button class="btn btn-success" onclick="simulate({type:'result', status:'success', item_id:document.getElementById('item_id').value||'R-0001'})">success</button>
+            <input type="text" id="item_id" value="R-0001" style="width:120px;" placeholder="item_id">
+            <button class="btn btn-secondary" onclick="simulate({type:'result', status:'not_found'})">not_found</button>
+            <button class="btn btn-secondary" onclick="simulate({type:'result', status:'network_error'})">network_error</button>
+            <button class="btn btn-secondary" onclick="simulate({type:'result', status:'retry'})">retry</button>
+        </div>
+    </div>
+</div>
+
+<!-- Simulate Failures -->
+<h2>Simulate Failures</h2>
+<div class="card">
+    <div class="actions">
+        <button class="btn btn-danger" onclick="simulate({type:'system_failure'})">Force SYSTEM_FAILURE</button>
+        <button class="btn btn-warning" onclick="forceReconnect()">Simulate WS Drop</button>
+    </div>
+</div>
+
+<!-- Hardware Tests -->
+<h2>Hardware Tests — Buzzer</h2>
+<div class="card">
+    <div style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap;">
+        <div class="form-group" style="margin:0;">
+            <label>Frequency (Hz)</label>
+            <input type="number" id="buzzer-freq" value="1000" style="width:120px;">
+        </div>
+        <div class="form-group" style="margin:0;">
+            <label>Duration (s)</label>
+            <input type="number" id="buzzer-dur" value="0.3" step="0.05" style="width:100px;">
+        </div>
+        <button class="btn btn-secondary" onclick="testBuzzerTone()">Play Tone</button>
+        <button class="btn btn-secondary" onclick="fetch('/action/test-buzzer',{method:'POST'})">All Patterns</button>
+    </div>
+</div>
+
+<h2>Hardware Tests — LCD</h2>
+<div class="card">
+    <div style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap;">
+        <div class="form-group" style="margin:0;">
+            <label>Line 1</label>
+            <input type="text" id="lcd-line1" value="Universal Reader" style="width:180px;" maxlength="16">
+        </div>
+        <div class="form-group" style="margin:0;">
+            <label>Line 2</label>
+            <input type="text" id="lcd-line2" value="Hello World" style="width:180px;" maxlength="16">
+        </div>
+        <button class="btn btn-secondary" onclick="testLcd()">Show on LCD</button>
+    </div>
+</div>
+
+<div id="feedback" style="margin-top:1rem;"></div>
+
+<script>
+function showFeedback(msg, ok) {
+    const el = document.getElementById('feedback');
+    el.innerHTML = `<div class="msg ${ok ? 'msg-success' : 'msg-error'}">${msg}</div>`;
+    setTimeout(() => el.innerHTML = '', 3000);
+}
+
+async function simulate(body) {
+    try {
+        const r = await fetch('/debug/simulate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        const d = await r.json();
+        showFeedback(r.ok ? 'Simulated: ' + JSON.stringify(body) : d.detail, r.ok);
+        refreshState();
+    } catch(e) { showFeedback('Error: ' + e, false); }
+}
+
+async function readUid() {
+    try {
+        const r = await fetch('/debug/read-uid', {method:'POST'});
+        const d = await r.json();
+        document.getElementById('uid-result').textContent = r.ok ? ('UID: ' + (d.uid || 'no tag detected')) : ('Error: ' + d.detail);
+    } catch(e) { document.getElementById('uid-result').textContent = 'Error: ' + e; }
+}
+
+async function testBuzzerTone() {
+    const freq = parseInt(document.getElementById('buzzer-freq').value);
+    const duration = parseFloat(document.getElementById('buzzer-dur').value);
+    try {
+        const r = await fetch('/debug/buzzer-tone', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({freq, duration})
+        });
+        const d = await r.json();
+        showFeedback(r.ok ? `Buzzer: ${freq}Hz ${duration}s` : d.detail, r.ok);
+    } catch(e) { showFeedback('Error: ' + e, false); }
+}
+
+async function testLcd() {
+    const line1 = document.getElementById('lcd-line1').value;
+    const line2 = document.getElementById('lcd-line2').value;
+    try {
+        const r = await fetch('/debug/lcd-custom', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({line1, line2})
+        });
+        const d = await r.json();
+        showFeedback(r.ok ? 'LCD updated' : d.detail, r.ok);
+    } catch(e) { showFeedback('Error: ' + e, false); }
+}
+
+async function forceReconnect() {
+    await fetch('/action/force-reconnect', {method:'POST'});
+    showFeedback('Forced reconnect', true);
+    refreshState();
+}
+
+async function refreshState() {
+    try {
+        const r = await fetch('/debug/state');
+        if (r.ok) {
+            const d = await r.json();
+            document.getElementById('live-state').textContent = JSON.stringify(d, null, 2);
+        }
+    } catch {}
+}
+
+refreshState();
+setInterval(refreshState, 2000);
+</script>
+{% endblock %}
