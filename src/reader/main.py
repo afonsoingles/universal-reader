@@ -74,6 +74,10 @@ async def run(config=None) -> None:
     async def update_buzzer(old_state: ReaderState, new_state: ReaderState) -> None:
         if new_state == ReaderState.READING:
             await loop.run_in_executor(None, buzzer.reading_start)
+        # Play a success beep when recovering from SYSTEM_FAILURE back to ACTIVE
+        elif old_state == ReaderState.SYSTEM_FAILURE and new_state == ReaderState.ACTIVE:
+            logger.info("system_recovered", "Transitioned from SYSTEM_FAILURE to ACTIVE")
+            await loop.run_in_executor(None, buzzer.result_success)
 
     sm.register_state_change_callback(update_buzzer)
 
