@@ -327,7 +327,7 @@ def create_app(
         duration = float(body.get("duration", 0.3))
         logger.info("debug_buzzer_tone", f"freq={freq} duration={duration}")
         loop = asyncio.get_event_loop()
-        asyncio.create_task(loop.run_in_executor(None, buzzer.beep, freq, duration))
+        await loop.run_in_executor(None, buzzer.beep, freq, duration)
         return {"ok": True}
 
     @app.post("/debug/lcd-custom")
