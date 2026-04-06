@@ -52,7 +52,7 @@ async def run(config=None) -> None:
         if new_state == ReaderState.HIBERNATED:
             await loop.run_in_executor(None, lcd.off)
         elif new_state == ReaderState.ACTIVE:
-            # Start with backlight OFF when becoming active
+            # Start with backlight ON
             await loop.run_in_executor(None, lcd.display, "Universal Reader", f"Reader {rn}", True)
         elif new_state == ReaderState.READING:
             await loop.run_in_executor(None, lcd.display, "Universal Reader", "Scan item...", True)
@@ -119,6 +119,24 @@ async def run(config=None) -> None:
         await sm.async_transition(ReaderState.READING, "read command")
         logger.info("ws_read", "entering READING state")
 
+        # Start timeout for READING state — if user doesn't scan within remaining activation time, timeout
+        remaining = sm.remaining_timeout_seconds
+        if remaining is not None and remaining > 0:
+            async def _handle_reading_timeout():
+                await asyncio.sleep(remaining)
+                if sm.state == ReaderState.READING:
+                    logger.warn("reading_timeout", f"No scan within {remaining}s")
+                    # Show timeout message
+                    await loop.run_in_executor(
+                        None, lcd.display, "", "Timed Out", True
+                    )
+                    await loop.run_in_executor(None, buzzer.result_error)
+                    await asyncio.sleep(2)
+                    # Go back to hibernated
+                    await sm.async_transition(ReaderState.HIBERNATED, "reading timeout")
+
+            asyncio.create_task(_handle_reading_timeout())
+
     async def on_result(msg: ResultMessage) -> None:
         await sm.async_transition(ReaderState.ACTIVE, "result received")
         logger.info("ws_result", f"status={msg.status} item_id={msg.item_id}")
@@ -148,7 +166,7 @@ async def run(config=None) -> None:
             if sm.state == ReaderState.ACTIVE:
                 # Restore ACTIVE screen with backlight OFF
                 await loop.run_in_executor(
-                    None, lcd.display, "Universal Reader", f"Reader {rn}", True
+                    None, lcd.display, "Universal Reader", f"Reader {rn}", False
                 )
 
                 async def _hibernate_if_idle():

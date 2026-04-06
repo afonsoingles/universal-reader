@@ -68,6 +68,7 @@ class RC522Reader:
         if self._running:
             return
         self._running = True
+        logger.info("rc522_start", f"Starting RC522 reader daemon (available={self._available})")
         self._thread = threading.Thread(target=self._read_loop, daemon=True, name="rc522-reader")
         self._thread.start()
 
@@ -77,25 +78,39 @@ class RC522Reader:
     def read_once(self) -> str | None:
         """Read a single tag UID synchronously (for debug mode). Returns UID or None."""
         if not self._available or self._reader is None:
+            logger.warn("rc522_read_once_unavailable", "RC522 not available")
             return None
         try:
+            logger.debug("rc522_read_once_attempt", "Attempting to read")
             uid, _ = self._reader.read_no_block()
             if uid is not None:
-                return format(uid, "X")
+                uid_str = format(uid, "X")
+                logger.info("rc522_read_once_success", uid_str)
+                return uid_str
+            else:
+                logger.debug("rc522_read_once_no_tag", "No tag detected")
+                return None
         except Exception as exc:  # noqa: BLE001
-            logger.error("rc522_read_error", str(exc))
+            logger.error("rc522_read_error", f"{type(exc).__name__}: {exc}")
         return None
 
     def _read_loop(self) -> None:
         import time
 
+        logger.info("rc522_loop_started", f"Read loop running (available={self._available})")
+        loop_count = 0
         while self._running:
             if self._available and self._reader is not None:
                 try:
                     uid, _ = self._reader.read_no_block()
                     if uid is not None:
                         uid_str = format(uid, "X")
+                        logger.info("rc522_tag_detected", uid_str)
                         self._on_scan(uid_str)
+                    # Log periodically to confirm loop is running
+                    loop_count += 1
+                    if loop_count % 50 == 0:  # Every 5 seconds (50 * 0.1s)
+                        logger.debug("rc522_loop_alive", f"Read loop running, no tags detected yet")
                 except Exception as exc:  # noqa: BLE001
-                    logger.error("rc522_loop_error", str(exc))
+                    logger.error("rc522_loop_error", f"{type(exc).__name__}: {exc}")
             time.sleep(0.1)
