@@ -46,11 +46,13 @@ class LCD:
         l2 = center(line2)
         if self._available and self._lcd is not None:
             try:
+                logger.verbose("lcd_display_start", f"line1={line1[:16]!r} line2={line2[:16]!r} backlight={backlight}")
                 self._lcd.backlight_enabled = backlight
                 self._lcd.clear()
                 self._lcd.write_string(l1)
                 self._lcd.crlf()
                 self._lcd.write_string(l2)
+                logger.verbose("lcd_display_complete", "Display updated successfully")
             except Exception as exc:  # noqa: BLE001
                 logger.error("lcd_write_error", str(exc))
         else:
@@ -61,8 +63,10 @@ class LCD:
     def off(self) -> None:
         if self._available and self._lcd is not None:
             try:
+                logger.verbose("lcd_off_start", "Turning off LCD")
                 self._lcd.backlight_enabled = False
                 self._lcd.clear()
+                logger.verbose("lcd_off_complete", "LCD turned off successfully")
             except Exception as exc:  # noqa: BLE001
                 logger.error("lcd_off_error", str(exc))
         else:
