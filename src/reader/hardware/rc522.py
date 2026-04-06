@@ -99,6 +99,7 @@ class RC522Reader:
 
         logger.info("rc522_loop_started", f"Read loop running (available={self._available})")
         loop_count = 0
+        last_error_logged = None
         while self._running:
             if self._available and self._reader is not None:
                 try:
@@ -110,7 +111,16 @@ class RC522Reader:
                     # Log periodically to confirm loop is running
                     loop_count += 1
                     if loop_count % 50 == 0:  # Every 5 seconds (50 * 0.1s)
-                        logger.verbose("rc522_loop_alive", f"Read loop running, no tags detected yet")
+                        logger.verbose("rc522_loop_alive", f"Read loop running, no tags detected yet (count={loop_count})")
                 except Exception as exc:  # noqa: BLE001
-                    logger.error("rc522_loop_error", f"{type(exc).__name__}: {exc}")
+                    exc_str = f"{type(exc).__name__}: {exc}"
+                    # Only log unique errors to avoid spam
+                    if exc_str != last_error_logged:
+                        logger.error("rc522_loop_error", exc_str)
+                        last_error_logged = exc_str
+            else:
+                # Log if reader became unavailable
+                if loop_count > 0:
+                    logger.warn("rc522_loop_unavailable", f"Reader no longer available (available={self._available}, reader={self._reader is not None})")
+                    loop_count = 0  # Reset to avoid repeated logging
             time.sleep(0.1)

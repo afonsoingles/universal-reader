@@ -63,7 +63,8 @@ async def run(config=None) -> None:
         elif new_state == ReaderState.SYSTEM_FAILURE:
             await loop.run_in_executor(None, lcd.display, "\u26a0\ufe0f", "System Failure", True)
         elif new_state == ReaderState.LOCALLY_DISABLED:
-            await loop.run_in_executor(None, lcd.display, "\u26a0\ufe0f", "Reader Disabled", True)
+            # Quietly disable: turn off backlight and clear display
+            await loop.run_in_executor(None, lcd.off)
 
     sm.register_state_change_callback(update_lcd)
 
@@ -192,7 +193,9 @@ async def run(config=None) -> None:
 
     def on_uid_scanned(uid: str) -> None:
         """Called from the RC522 daemon thread when a tag is scanned."""
+        logger.info("on_uid_scanned_callback", f"uid={uid}, state={sm.state}")
         if sm.state != ReaderState.READING:
+            logger.warn("on_uid_scanned_rejected", f"Not in READING state, rejecting scan (state={sm.state})")
             return
         sm.record_scan(uid)
         logger.info("uid_scanned", uid)

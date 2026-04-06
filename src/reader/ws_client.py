@@ -116,8 +116,10 @@ class WSClient:
         finally:
             self._ws = None
             self._sm.ws_connected = False
-            # Only transition to SYSTEM_FAILURE if not locally disabled
-            if self._sm.state != ReaderState.LOCALLY_DISABLED:
+            logger.info("ws_connection_lost", f"Current state before failure transition: {self._sm.state}")
+            # Only transition to SYSTEM_FAILURE if not locally disabled and not already in failure
+            if self._sm.state not in (ReaderState.LOCALLY_DISABLED, ReaderState.SYSTEM_FAILURE):
+                logger.info("ws_entering_failure", "Transitioning to SYSTEM_FAILURE due to WS disconnect")
                 await self._sm.async_transition(
                     ReaderState.SYSTEM_FAILURE, "websocket disconnected"
                 )
@@ -139,9 +141,13 @@ class WSClient:
             self._sm.reader_number = msg.reader_number
             logger.info("ws_registered", f"reader_number={msg.reader_number}")
             # Restore pre-failure state on successful re-registration
-            target = self._sm.pre_failure_state
             if self._sm.state == ReaderState.SYSTEM_FAILURE:
+                target = self._sm.pre_failure_state
+                logger.info("ws_restoring_state", f"Restoring from SYSTEM_FAILURE to {target}")
                 await self._sm.async_transition(target, "ws reconnected")
+            else:
+                # Even if not in SYSTEM_FAILURE, mark that we're connected
+                logger.info("ws_connection_alive", f"Current state: {self._sm.state}")
 
         elif isinstance(msg, PingMessage):
             # Respond immediately to keep-alive pings from the Inventory server.
