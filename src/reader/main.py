@@ -175,9 +175,9 @@ async def run(config=None) -> None:
             # Shorter restore: go back to ACTIVE display after 5s
             await asyncio.sleep(5)
             if sm.state == ReaderState.ACTIVE:
-                # Restore ACTIVE screen with backlight OFF
+                # Restore ACTIVE screen with backlight ON
                 await loop.run_in_executor(
-                    None, lcd.display, "Universal Reader", f"Reader {rn}", False
+                    None, lcd.display, "Universal Reader", f"Reader {rn}", True
                 )
 
                 async def _hibernate_if_idle():
