@@ -66,9 +66,8 @@ async def run(config=None) -> None:
     tag_scan_handler = TagScanHandler(sm, lcd, buzzer, loop)
     rc522_callback = tag_scan_handler.on_uid_scanned_from_thread
     
-    # Recreate RC522 with callback
-    from reader.hardware.rc522 import RC522Reader
-    rc522 = RC522Reader(on_scan=rc522_callback)
+    # Reconfigure RC522 with scan callback
+    rc522._on_scan = rc522_callback
     sys.rc522_reader = rc522  # type: ignore[attr-defined]
     rc522.start()
 

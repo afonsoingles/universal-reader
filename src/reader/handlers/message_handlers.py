@@ -119,7 +119,12 @@ class MessageHandlers:
             await self._loop.run_in_executor(None, self._lcd.display, "", "Timed Out", True)
             await self._loop.run_in_executor(None, self._buzzer.result_error)
             await asyncio.sleep(2)
-            await self._sm.async_transition(ReaderState.HIBERNATED, "reading timeout")
+            # Must transition through AWAITING_RESULT before going to HIBERNATED
+            success = await self._sm.async_transition(ReaderState.AWAITING_RESULT, "reading timeout")
+            if success:
+                await self._sm.async_transition(ReaderState.HIBERNATED, "reading timeout")
+            else:
+                logger.warn("reading_timeout_transition_failed", f"Could not transition from READING")
 
     async def _restore_lcd_after_result(self, reader_number: str) -> None:
         """Restore LCD to ACTIVE display after result is shown."""
