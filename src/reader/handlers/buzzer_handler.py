@@ -21,8 +21,5 @@ async def create_buzzer_update_callback(sm: StateManager, buzzer: Buzzer, loop: 
         if new_state == ReaderState.READING:
             logger.verbose("buzzer_reading_start", "Playing reading start beep")
             await loop.run_in_executor(None, buzzer.reading_start)
-        elif old_state == ReaderState.SYSTEM_FAILURE and new_state == ReaderState.ACTIVE:
-            logger.info("system_recovered", "Transitioned from SYSTEM_FAILURE to ACTIVE")
-            await loop.run_in_executor(None, buzzer.result_success)
     
     return update_buzzer

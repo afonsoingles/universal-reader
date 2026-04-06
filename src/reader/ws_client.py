@@ -150,9 +150,13 @@ class WSClient:
                 success = await self._sm.async_transition(target, "ws reconnected")
                 if success:
                     logger.info("ws_restore_success", f"Successfully restored to {target}")
+                    # Set default 30s timeout when restoring to ACTIVE
+                    if target == ReaderState.ACTIVE:
+                        self._sm.set_activation_timeout(30)
                 else:
                     logger.error("ws_restore_failed", f"Failed to restore to {target}, forcing ACTIVE")
                     await self._sm.async_transition(ReaderState.ACTIVE, "ws reconnected fallback")
+                    self._sm.set_activation_timeout(30)
             else:
                 # Even if not in SYSTEM_FAILURE, mark that we're connected
                 logger.info("ws_connection_alive", f"Current state: {self._sm.state}")

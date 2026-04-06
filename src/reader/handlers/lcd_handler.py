@@ -36,7 +36,7 @@ async def create_lcd_update_callback(sm: StateManager, lcd: LCD, loop: asyncio.A
             await loop.run_in_executor(None, lcd.display, "Universal Reader", "Processing...", True)
         elif new_state == ReaderState.SYSTEM_FAILURE:
             logger.verbose("update_lcd_failure", "Displaying SYSTEM_FAILURE screen")
-            await loop.run_in_executor(None, lcd.display, "\u26a0\ufe0f", "System Failure", True)
+            await loop.run_in_executor(None, lcd.display, "Sorry!", "System Failure", True)
         elif new_state == ReaderState.LOCALLY_DISABLED:
             logger.verbose("update_lcd_disabled", "Turning off LCD (LOCALLY_DISABLED state)")
             await loop.run_in_executor(None, lcd.off)

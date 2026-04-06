@@ -236,9 +236,9 @@ def create_app(
         elif state == ReaderState.AWAITING_RESULT:
             await loop.run_in_executor(None, lcd.display, "Universal Reader", "Processing...", True)
         elif state == ReaderState.SYSTEM_FAILURE:
-            await loop.run_in_executor(None, lcd.display, "\u26a0\ufe0f", "System Failure", True)
+            await loop.run_in_executor(None, lcd.display, "Sorry!", "System Failure", True)
         elif state == ReaderState.LOCALLY_DISABLED:
-            await loop.run_in_executor(None, lcd.display, "\u26a0\ufe0f", "Reader Disabled", True)
+            await loop.run_in_executor(None, lcd.display, "Sorry!", "Reader Disabled", True)
 
     @app.post("/action/force-reconnect")
     async def action_force_reconnect(request: Request):

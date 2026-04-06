@@ -78,7 +78,7 @@ class TagScanHandler:
             
             # Show timeout message
             logger.verbose("server_timeout_show_message", "Displaying timeout message on LCD")
-            await self._loop.run_in_executor(None, self._lcd.display, "No Response", "Retrying...", True)
+            await self._loop.run_in_executor(None, self._lcd.display, "Sorry!", "Timed Out", True)
             logger.verbose("server_timeout_show_message_complete", "Timeout message displayed")
             
             # Play error beep

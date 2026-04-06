@@ -91,11 +91,11 @@ class MessageHandlers:
         if msg.status == "success":
             await self._loop.run_in_executor(None, self._lcd.display, "Item Found", msg.item_id or "", True)
         elif msg.status == "not_found":
-            await self._loop.run_in_executor(None, self._lcd.display, "\u26a0\ufe0f", "Item Not Found", True)
+            await self._loop.run_in_executor(None, self._lcd.display, "Universal Reader", "Item Not Found", True)
         elif msg.status == "network_error":
-            await self._loop.run_in_executor(None, self._lcd.display, "\u26a0\ufe0f", "Network Error", True)
+            await self._loop.run_in_executor(None, self._lcd.display, "Sorry!", "Network Error", True)
         elif msg.status == "retry":
-            await self._loop.run_in_executor(None, self._lcd.display, "\u26a0\ufe0f", "Read Error", True)
+            await self._loop.run_in_executor(None, self._lcd.display, "Sorry!", "Scanning Error", True)
 
         # Schedule restore after 5s
         asyncio.create_task(self._restore_lcd_after_result(rn))
@@ -116,7 +116,7 @@ class MessageHandlers:
         await asyncio.sleep(remaining)
         if self._sm.state == ReaderState.READING:
             logger.warn("reading_timeout", f"No scan within {remaining}s")
-            await self._loop.run_in_executor(None, self._lcd.display, "", "Timed Out", True)
+            await self._loop.run_in_executor(None, self._lcd.display, "Sorry!", "Timed Out", True)
             await self._loop.run_in_executor(None, self._buzzer.result_error)
             await asyncio.sleep(2)
             # Must transition through AWAITING_RESULT before going to HIBERNATED
