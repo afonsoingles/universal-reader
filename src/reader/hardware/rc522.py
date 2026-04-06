@@ -81,14 +81,14 @@ class RC522Reader:
             logger.warn("rc522_read_once_unavailable", "RC522 not available")
             return None
         try:
-            logger.debug("rc522_read_once_attempt", "Attempting to read")
+            logger.verbose("rc522_read_once_attempt", "Attempting to read")
             uid, _ = self._reader.read_no_block()
             if uid is not None:
                 uid_str = format(uid, "X")
                 logger.info("rc522_read_once_success", uid_str)
                 return uid_str
             else:
-                logger.debug("rc522_read_once_no_tag", "No tag detected")
+                logger.verbose("rc522_read_once_no_tag", "No tag detected")
                 return None
         except Exception as exc:  # noqa: BLE001
             logger.error("rc522_read_error", f"{type(exc).__name__}: {exc}")
@@ -110,7 +110,7 @@ class RC522Reader:
                     # Log periodically to confirm loop is running
                     loop_count += 1
                     if loop_count % 50 == 0:  # Every 5 seconds (50 * 0.1s)
-                        logger.debug("rc522_loop_alive", f"Read loop running, no tags detected yet")
+                        logger.verbose("rc522_loop_alive", f"Read loop running, no tags detected yet")
                 except Exception as exc:  # noqa: BLE001
                     logger.error("rc522_loop_error", f"{type(exc).__name__}: {exc}")
             time.sleep(0.1)
