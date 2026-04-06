@@ -168,7 +168,9 @@ class WSClient:
             if self._sm.state in (ReaderState.READING, ReaderState.AWAITING_RESULT):
                 await self.send_model(ErrorMessage(reason="scan_in_progress"))
                 logger.warn("ws_read_refused", "scan already in progress")
-            elif self._sm.state == ReaderState.ACTIVE:
+            elif self._sm.state in (ReaderState.ACTIVE, ReaderState.HIBERNATED):
+                # Accept READ from ACTIVE or HIBERNATED states
+                # (HIBERNATED = device recovered from timeout and is ready for new scan)
                 await self._on_read(msg)
             else:
                 logger.info("ws_read_ignored", f"state={self._sm.state}")
