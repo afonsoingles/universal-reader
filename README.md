@@ -17,6 +17,7 @@ A Raspberry Pi Zero W 2 application that bridges an RC522 RFID/NFC reader to an 
 - [Web Dashboard](#web-dashboard)
 - [WebSocket Integration](#websocket-integration)
 - [Development](#development)
+- [Architecture & Code Structure](#architecture--code-structure)
 
 ---
 
@@ -263,3 +264,41 @@ uv run universal-reader
 ```
 
 Hardware drivers (RC522 via `mfrc522`, LCD via `RPLCD`, buzzer via `pigpio`) fall back to mock stubs automatically when the libraries are not importable, so the full application — including the dashboard — can be developed and tested on any machine.
+
+---
+
+## Architecture & Code Structure
+
+The codebase is organized into focused, single-responsibility modules for maintainability:
+
+```
+src/reader/
+├── main.py              # Application orchestrator
+├── startup.py           # Hardware initialization & cleanup
+├── state.py             # State machine (StateManager)
+├── ws_client.py         # WebSocket client
+├── models.py            # Pydantic data models
+├── config.py            # Configuration loading
+├── logger.py            # In-memory log
+├── handlers/            # Message & event handlers
+│   ├── message_handlers.py    # WebSocket message dispatch
+│   ├── tag_scan_handler.py    # RC522 scan & timeouts
+│   ├── lcd_handler.py         # LCD display updates
+│   └── buzzer_handler.py      # Audio feedback
+├── hardware/            # Hardware abstractions
+│   ├── lcd.py           # LCD I2C control
+│   ├── buzzer.py        # Buzzer PWM control
+│   └── rc522.py         # RC522 RFID reader
+└── dashboard/           # FastAPI web dashboard
+```
+
+**Key features:**
+- **Handlers are independent modules**: Easy to test, modify, and extend
+- **State machine is central**: All state changes trigger appropriate callbacks
+- **Timeout cascade**: Global activation timeout bounds all sub-operations
+- **Clean separation**: Hardware, state, messaging, and UI are decoupled
+
+For detailed architecture information, see:
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — Component responsibilities and data flow
+- [`ARCHITECTURE_DIAGRAMS.md`](./ARCHITECTURE_DIAGRAMS.md) — Visual flow diagrams
+- [`REFACTORING_NOTES.md`](./REFACTORING_NOTES.md) — What changed and why
