@@ -2,7 +2,8 @@
 {% block title %}Login — Universal Reader{% endblock %}
 {% block content %}
 <div style="max-width:380px; margin:10vh auto;">
-    <h1 style="margin-bottom:2rem; text-align:center;">Universal Reader</h1>
+    <h1 style="margin-bottom:0.5rem; text-align:center;">Universal Reader</h1>
+    <p id="reader-badge" style="text-align:center; margin-bottom:1.5rem; color:#64748b; font-size:0.875rem; min-height:1.25rem;"></p>
     {% if error %}
     <div class="msg msg-error">{{ error }}</div>
     {% endif %}
@@ -16,4 +17,11 @@
         </form>
     </div>
 </div>
+<script>
+fetch('/status').then(r => r.json()).then(d => {
+    if (d.reader_number !== null && d.reader_number !== undefined) {
+        document.getElementById('reader-badge').textContent = 'Reader #' + d.reader_number;
+    }
+}).catch(() => {});
+</script>
 {% endblock %}
