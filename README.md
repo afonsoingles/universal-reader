@@ -109,6 +109,9 @@ cd universal-reader
 
 # Install dependencies (uv will download Python 3.12 automatically if needed)
 uv sync
+
+# On Raspberry Pi: also install the hardware drivers (RPLCD, pigpio, mfrc522)
+uv sync --group hardware
 ```
 
 ---
