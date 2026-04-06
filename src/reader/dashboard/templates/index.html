@@ -21,16 +21,16 @@
                     "SYSTEM_FAILURE": "badge-failure",
                     "LOCALLY_DISABLED": "badge-disabled"
                 } %}
-                <span class="badge {{ bc.get(state, '') }}">{{ state }}</span>
+                <span id="stat-state" class="badge {{ bc.get(state, '') }}">{{ state }}</span>
             </div>
         </div>
         <div class="stat">
             <div class="stat-label">Reader #</div>
-            <div class="stat-value">{{ reader_number if reader_number is not none else "—" }}</div>
+            <div class="stat-value" id="stat-reader-number">{{ reader_number if reader_number is not none else "—" }}</div>
         </div>
         <div class="stat">
             <div class="stat-label">WebSocket</div>
-            <div class="stat-value {% if ws_connected %}ws-on{% else %}ws-off{% endif %}">
+            <div class="stat-value {% if ws_connected %}ws-on{% else %}ws-off{% endif %}" id="stat-ws">
                 {{ "Connected" if ws_connected else "Disconnected" }}
             </div>
         </div>
@@ -40,7 +40,8 @@
         </div>
         <div class="stat">
             <div class="stat-label">Last Scan</div>
-            <div class="stat-value">{{ last_scan if last_scan else "—" }}</div>
+            <div class="stat-value" id="stat-last-scan"
+                 data-iso="{{ last_scan if last_scan else '' }}">{{ last_scan if last_scan else "—" }}</div>
         </div>
     </div>
 </div>
@@ -67,11 +68,47 @@
 </div>
 
 <script>
+const _STATE_BADGE_CLASS = {
+    'ACTIVE': 'badge-active',
+    'HIBERNATED': 'badge-hibernated',
+    'READING': 'badge-reading',
+    'AWAITING_RESULT': 'badge-awaiting',
+    'SYSTEM_FAILURE': 'badge-failure',
+    'LOCALLY_DISABLED': 'badge-disabled',
+};
+
+// Format initial last_scan value consistently with JS refreshes
+(function() {
+    const el = document.getElementById('stat-last-scan');
+    if (el && el.dataset.iso) {
+        el.textContent = new Date(el.dataset.iso).toLocaleString();
+    }
+})();
+
 function postAction(url) {
     fetch(url, { method: 'POST' })
         .then(r => r.json())
         .then(() => location.reload())
         .catch(e => alert('Error: ' + e));
+}
+
+async function refreshStatus() {
+    try {
+        const r = await fetch('/status');
+        if (!r.ok) return;
+        const d = await r.json();
+        const stateEl = document.getElementById('stat-state');
+        stateEl.className = 'badge ' + (_STATE_BADGE_CLASS[d.state] || '');
+        stateEl.textContent = d.state;
+        document.getElementById('stat-reader-number').textContent =
+            d.reader_number !== null && d.reader_number !== undefined ? d.reader_number : '—';
+        const wsEl = document.getElementById('stat-ws');
+        wsEl.className = 'stat-value ' + (d.ws_connected ? 'ws-on' : 'ws-off');
+        wsEl.textContent = d.ws_connected ? 'Connected' : 'Disconnected';
+        document.getElementById('uptime').textContent = d.uptime_seconds.toFixed(1) + 's';
+        document.getElementById('stat-last-scan').textContent =
+            d.last_scan ? new Date(d.last_scan).toLocaleString() : '—';
+    } catch {}
 }
 
 function formatLog(entries) {
@@ -97,7 +134,9 @@ async function refreshLogs() {
     } catch {}
 }
 
+refreshStatus();
 refreshLogs();
+setInterval(refreshStatus, 5000);
 setInterval(refreshLogs, 2000);
 </script>
 {% endblock %}

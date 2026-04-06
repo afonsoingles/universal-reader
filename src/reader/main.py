@@ -169,6 +169,24 @@ async def run(config=None) -> None:
     rc522.start()
 
     # ------------------------------------------------------------------
+    # Startup hardware checkup
+    # ------------------------------------------------------------------
+
+    hw_failures = []
+    if not lcd._available:
+        hw_failures.append("LCD")
+    if not buzzer._available:
+        hw_failures.append("Buzzer")
+    if not rc522._available:
+        hw_failures.append("RC522")
+
+    if hw_failures:
+        logger.error("checkup_failed", f"Hardware unavailable: {', '.join(hw_failures)}")
+        await sm.async_transition(ReaderState.SYSTEM_FAILURE, "hardware checkup failed")
+    else:
+        logger.info("checkup_ok", "All hardware components available")
+
+    # ------------------------------------------------------------------
     # WebSocket client
     # ------------------------------------------------------------------
 
