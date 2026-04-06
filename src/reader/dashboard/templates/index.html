@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Universal Reader{% endblock %}
+{% block content %}
+<h1>Universal Reader</h1>
+<nav>
+    <a href="/">Dashboard</a>
+    <a href="/debug">Debug</a>
+    <a href="/logout">Logout</a>
+</nav>
+
+<div class="card">
+    <div class="grid">
+        <div class="stat">
+            <div class="stat-label">State</div>
+            <div class="stat-value">
+                {% set bc = {
+                    "ACTIVE": "badge-active",
+                    "HIBERNATED": "badge-hibernated",
+                    "READING": "badge-reading",
+                    "AWAITING_RESULT": "badge-awaiting",
+                    "SYSTEM_FAILURE": "badge-failure",
+                    "LOCALLY_DISABLED": "badge-disabled"
+                } %}
+                <span class="badge {{ bc.get(state, '') }}">{{ state }}</span>
+            </div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Reader #</div>
+            <div class="stat-value">{{ reader_number if reader_number is not none else "—" }}</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">WebSocket</div>
+            <div class="stat-value {% if ws_connected %}ws-on{% else %}ws-off{% endif %}">
+                {{ "Connected" if ws_connected else "Disconnected" }}
+            </div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Uptime</div>
+            <div class="stat-value" id="uptime">{{ uptime_seconds }}s</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Last Scan</div>
+            <div class="stat-value">{{ last_scan if last_scan else "—" }}</div>
+        </div>
+    </div>
+</div>
+
+<h2>Actions</h2>
+<div class="card">
+    <div class="actions">
+        <button class="btn btn-danger" onclick="postAction('/action/disable')"
+            {% if locally_disabled %}disabled{% endif %}>Disable</button>
+        <button class="btn btn-success" onclick="postAction('/action/enable')"
+            {% if not locally_disabled %}disabled{% endif %}>Re-enable</button>
+        <button class="btn btn-secondary" onclick="postAction('/action/test-buzzer')">Test Buzzer</button>
+        <button class="btn btn-secondary" onclick="postAction('/action/test-lcd')">Test LCD</button>
+        <button class="btn btn-warning" onclick="postAction('/action/force-reconnect')">Force Reconnect</button>
+        <button class="btn btn-secondary" onclick="postAction('/logs/clear')">Clear Logs</button>
+    </div>
+</div>
+
+<h2>Log</h2>
+<div class="card" style="padding:0">
+    <div class="log-container" id="log-container">
+        <div style="color:#64748b; font-size:0.8rem;">Loading logs…</div>
+    </div>
+</div>
+
+<script>
+function postAction(url) {
+    fetch(url, { method: 'POST' })
+        .then(r => r.json())
+        .then(() => location.reload())
+        .catch(e => alert('Error: ' + e));
+}
+
+function formatLog(entries) {
+    if (!entries.length) return '<div style="color:#64748b">No log entries.</div>';
+    return entries.slice().reverse().map(e => {
+        const cls = e.level === 'ERROR' ? 'log-error' : e.level === 'WARN' ? 'log-warn' : 'log-info';
+        const ts = new Date(e.timestamp).toLocaleTimeString();
+        const detail = e.detail ? `<span class="log-detail">${e.detail}</span>` : '';
+        return `<div class="log-entry ${cls}">` +
+               `<span class="log-time">${ts}</span>` +
+               `<span class="badge" style="font-size:0.65rem;padding:0.1rem 0.4rem;margin-right:0.4rem;">${e.level}</span>` +
+               `<span class="log-event">${e.event}</span>${detail}</div>`;
+    }).join('');
+}
+
+async function refreshLogs() {
+    try {
+        const r = await fetch('/logs');
+        if (r.ok) {
+            const data = await r.json();
+            document.getElementById('log-container').innerHTML = formatLog(data);
+        }
+    } catch {}
+}
+
+refreshLogs();
+setInterval(refreshLogs, 2000);
+</script>
+{% endblock %}
