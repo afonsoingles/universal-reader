@@ -55,6 +55,9 @@ async def run(config=None) -> None:
     update_buzzer = await create_buzzer_update_callback(sm, buzzer, loop)
     sm.register_state_change_callback(update_buzzer)
 
+    # Display initial active screen before any state changes
+    await loop.run_in_executor(None, lcd.display, "Universal Reader", "Waiting...", True)
+
     # ------------------------------------------------------------------
     # Initialize message handlers
     # ------------------------------------------------------------------
