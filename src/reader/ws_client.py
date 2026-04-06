@@ -50,6 +50,8 @@ class WSClient:
         on_deactivate,
         on_read,
         on_result,
+        lcd=None,
+        loop=None,
     ) -> None:
         self._url = url
         self._api_key = api_key
@@ -58,6 +60,8 @@ class WSClient:
         self._on_deactivate = on_deactivate
         self._on_read = on_read
         self._on_result = on_result
+        self._lcd = lcd
+        self._loop = loop
         self._ws = None
         self._running = False
 
@@ -140,6 +144,11 @@ class WSClient:
         if isinstance(msg, RegisteredMessage):
             self._sm.reader_number = msg.reader_number
             logger.info("ws_registered", f"reader_number={msg.reader_number}")
+            
+            # Update LCD with reader number
+            if self._lcd and self._loop:
+                await self._loop.run_in_executor(None, self._lcd.display, "Universal Reader", f"Reader {msg.reader_number}", True)
+            
             # Restore pre-failure state on successful re-registration
             if self._sm.state == ReaderState.SYSTEM_FAILURE:
                 target = self._sm.pre_failure_state

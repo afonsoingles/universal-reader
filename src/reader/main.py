@@ -85,6 +85,8 @@ async def run(config=None) -> None:
         on_deactivate=message_handlers.on_deactivate,
         on_read=message_handlers.on_read,
         on_result=message_handlers.on_result,
+        lcd=lcd,
+        loop=loop,
     )
 
     # Update handler references after WS client creation
