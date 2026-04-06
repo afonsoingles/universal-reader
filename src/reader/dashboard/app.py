@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fastapi import FastAPI, Form, HTTPException, Request, Response
+from fastapi import FastAPI, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -25,6 +25,7 @@ from reader.models import (
     ReaderState,
     ReaderStatus,
     ResultMessage,
+    UidScannedMessage,
 )
 from reader.state import StateManager
 
@@ -147,10 +148,14 @@ def create_app(
     # ------------------------------------------------------------------
 
     @app.get("/logs")
-    async def logs_endpoint(request: Request):
+    async def logs_endpoint(
+        request: Request,
+        level: list[str] | None = Query(default=None),
+    ):
         if not _is_authenticated(request):
             raise HTTPException(status_code=401, detail="Unauthorized")
-        entries = logger.get_entries()
+        allowed = {l.upper() for l in level} if level else None
+        entries = logger.get_entries(levels=allowed)
         return [e.model_dump(mode="json") for e in entries]
 
     @app.post("/logs/clear")
@@ -311,6 +316,15 @@ def create_app(
             status = body.get("status", "success")
             item_id = body.get("item_id")
             await on_result(ResultMessage(type="result", status=status, item_id=item_id))
+        elif msg_type == "uid_scanned":
+            uid = str(body.get("uid", "DEADBEEF"))
+            if state_manager.state != ReaderState.READING:
+                raise HTTPException(status_code=409, detail="Must be in READING state")
+            state_manager.record_scan(uid)
+            logger.info("debug_uid_scanned", uid)
+            await state_manager.async_transition(ReaderState.AWAITING_RESULT, "debug uid scan")
+            if ws_client is not None and ws_client._ws is not None:
+                await ws_client.send_model(UidScannedMessage(uid=uid))
         elif msg_type == "system_failure":
             await state_manager.async_transition(ReaderState.SYSTEM_FAILURE, "debug simulate")
         else:
@@ -327,8 +341,36 @@ def create_app(
         duration = float(body.get("duration", 0.3))
         logger.info("debug_buzzer_tone", f"freq={freq} duration={duration}")
         loop = asyncio.get_event_loop()
-        asyncio.create_task(loop.run_in_executor(None, buzzer.beep, freq, duration))
+        await loop.run_in_executor(None, buzzer.beep, freq, duration)
         return {"ok": True}
+
+    @app.post("/debug/buzzer-pattern")
+    async def debug_buzzer_pattern(request: Request):
+        if not _is_authenticated(request):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        body = await request.json()
+        pattern = str(body.get("pattern", "reading_start"))
+        logger.info("debug_buzzer_pattern", pattern)
+        loop = asyncio.get_event_loop()
+        if pattern == "reading_start":
+            await loop.run_in_executor(None, buzzer.reading_start)
+        elif pattern == "result_success":
+            await loop.run_in_executor(None, buzzer.result_success)
+        elif pattern == "result_error":
+            await loop.run_in_executor(None, buzzer.result_error)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown pattern: {pattern!r}")
+        return {"ok": True}
+
+    @app.get("/debug/hardware")
+    async def debug_hardware(request: Request):
+        if not _is_authenticated(request):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        return {
+            "lcd": {"available": lcd._available},
+            "buzzer": {"available": buzzer._available},
+            "rc522": {"available": rc522._available},
+        }
 
     @app.post("/debug/lcd-custom")
     async def debug_lcd_custom(request: Request):

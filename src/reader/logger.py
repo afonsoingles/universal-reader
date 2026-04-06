@@ -14,7 +14,7 @@ _lock = threading.Lock()
 _entries: deque[LogEntry] = deque(maxlen=_MAX_ENTRIES)
 
 
-def _log(level: Literal["INFO", "WARN", "ERROR"], event: str, detail: str | None = None) -> None:
+def _log(level: Literal["VERBOSE", "INFO", "WARN", "ERROR"], event: str, detail: str | None = None) -> None:
     entry = LogEntry(
         timestamp=datetime.now(tz=timezone.utc),
         level=level,
@@ -23,6 +23,10 @@ def _log(level: Literal["INFO", "WARN", "ERROR"], event: str, detail: str | None
     )
     with _lock:
         _entries.append(entry)
+
+
+def verbose(event: str, detail: str | None = None) -> None:
+    _log("VERBOSE", event, detail)
 
 
 def info(event: str, detail: str | None = None) -> None:
@@ -37,9 +41,11 @@ def error(event: str, detail: str | None = None) -> None:
     _log("ERROR", event, detail)
 
 
-def get_entries() -> list[LogEntry]:
+def get_entries(levels: set[str] | None = None) -> list[LogEntry]:
     with _lock:
-        return list(_entries)
+        if levels is None:
+            return list(_entries)
+        return [e for e in _entries if e.level in levels]
 
 
 def clear() -> None:

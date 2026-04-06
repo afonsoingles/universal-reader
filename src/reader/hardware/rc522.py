@@ -53,6 +53,9 @@ class RC522Reader:
         _install_stderr_filter()
 
         try:
+            import RPi.GPIO as GPIO  # type: ignore[import]
+
+            GPIO.setwarnings(False)
             from mfrc522 import SimpleMFRC522  # type: ignore[import]
 
             self._reader = SimpleMFRC522()
