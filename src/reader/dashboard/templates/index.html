@@ -62,7 +62,15 @@
 
 <h2>Log</h2>
 <div class="card" style="padding:0">
-    <div class="log-container" id="log-container">
+    <div style="padding:1rem 1rem 0; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+        <span style="font-size:0.75rem; color:#64748b; text-transform:uppercase; letter-spacing:0.05em;">Filter:</span>
+        <button class="btn btn-secondary log-filter-btn active-filter" style="padding:0.2rem 0.6rem; font-size:0.75rem;" onclick="setLogFilter(null, this)">All</button>
+        <button class="btn btn-secondary log-filter-btn" style="padding:0.2rem 0.6rem; font-size:0.75rem; color:#94a3b8;" onclick="setLogFilter('VERBOSE', this)">Verbose</button>
+        <button class="btn btn-secondary log-filter-btn" style="padding:0.2rem 0.6rem; font-size:0.75rem;" onclick="setLogFilter('INFO', this)">Info</button>
+        <button class="btn log-filter-btn" style="padding:0.2rem 0.6rem; font-size:0.75rem; background:#78350f; color:#fbbf24;" onclick="setLogFilter('WARN', this)">Warn</button>
+        <button class="btn log-filter-btn" style="padding:0.2rem 0.6rem; font-size:0.75rem; background:#450a0a; color:#f87171;" onclick="setLogFilter('ERROR', this)">Error</button>
+    </div>
+    <div class="log-container" id="log-container" style="border:none; border-top:1px solid #1e293b; border-radius:0; margin-top:0.75rem;">
         <div style="color:#64748b; font-size:0.8rem;">Loading logs…</div>
     </div>
 </div>
@@ -114,7 +122,7 @@ async function refreshStatus() {
 function formatLog(entries) {
     if (!entries.length) return '<div style="color:#64748b">No log entries.</div>';
     return entries.slice().reverse().map(e => {
-        const cls = e.level === 'ERROR' ? 'log-error' : e.level === 'WARN' ? 'log-warn' : 'log-info';
+        const cls = e.level === 'ERROR' ? 'log-error' : e.level === 'WARN' ? 'log-warn' : e.level === 'VERBOSE' ? 'log-verbose' : 'log-info';
         const ts = new Date(e.timestamp).toLocaleTimeString();
         const detail = e.detail ? `<span class="log-detail">${e.detail}</span>` : '';
         return `<div class="log-entry ${cls}">` +
@@ -124,9 +132,19 @@ function formatLog(entries) {
     }).join('');
 }
 
+let _logFilter = null;
+
+function setLogFilter(level, btn) {
+    _logFilter = level;
+    document.querySelectorAll('.log-filter-btn').forEach(b => b.classList.remove('active-filter'));
+    btn.classList.add('active-filter');
+    refreshLogs();
+}
+
 async function refreshLogs() {
     try {
-        const r = await fetch('/logs');
+        const url = _logFilter ? `/logs?level=${_logFilter}` : '/logs';
+        const r = await fetch(url);
         if (r.ok) {
             const data = await r.json();
             document.getElementById('log-container').innerHTML = formatLog(data);

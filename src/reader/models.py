@@ -115,7 +115,7 @@ class AppConfig(BaseModel):
 
 class LogEntry(BaseModel):
     timestamp: datetime
-    level: Literal["INFO", "WARN", "ERROR"]
+    level: Literal["VERBOSE", "INFO", "WARN", "ERROR"]
     event: str
     detail: str | None = None
 
