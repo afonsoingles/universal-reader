@@ -148,7 +148,7 @@ async def run(config=None) -> None:
             if sm.state == ReaderState.ACTIVE:
                 # Restore ACTIVE screen with backlight OFF
                 await loop.run_in_executor(
-                    None, lcd.display, "Universal Reader", f"Reader {rn}", False
+                    None, lcd.display, "Universal Reader", f"Reader {rn}", True
                 )
 
                 async def _hibernate_if_idle():
