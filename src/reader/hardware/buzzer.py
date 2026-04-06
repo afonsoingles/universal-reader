@@ -59,23 +59,12 @@ class Buzzer:
     # ------------------------------------------------------------------
 
     def reading_start(self) -> None:
-        """Beep played BEFORE processing starts.
-
-        NOTE: this used to be a short low beep. Per new behaviour the
-        previous "after processing" tone (long high) is now used here.
-        """
-        # previous post-processing tone (was result_success)
-        self.beep(1400, 0.75)
+        """1 short low beep on entering READING."""
+        self.beep(520, 0.25)
 
     def result_success(self) -> None:
-        """Play a new tone AFTER successful processing.
-
-        This is intentionally different from the pre-processing tone so
-        users can distinguish start vs result. Use a short double-tone
-        sequence for success feedback.
-        """
-        # new post-processing success pattern: two short mid-high beeps
-        self.beep_sequence(1200, 0.12, 2, 0.08)
+        """1 long high beep."""
+        self.beep(1400, 0.75)
 
     def result_error(self) -> None:
         """3 short high beeps (not_found / network_error / retry)."""
