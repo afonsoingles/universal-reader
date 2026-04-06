@@ -160,6 +160,8 @@ async def run(config=None) -> None:
 
     async def _handle_uid_scanned(uid: str) -> None:
         await sm.async_transition(ReaderState.AWAITING_RESULT, "tag scanned")
+        # Play a processing beep to indicate the tag is being processed
+        await loop.run_in_executor(None, buzzer.result_processing)
         if ws_client._ws is not None:
             from reader.models import UidScannedMessage
 

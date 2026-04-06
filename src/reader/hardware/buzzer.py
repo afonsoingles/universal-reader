@@ -62,9 +62,15 @@ class Buzzer:
         """1 short low beep on entering READING."""
         self.beep(520, 0.25)
 
-    def result_success(self) -> None:
-        """1 long high beep."""
+    def result_processing(self) -> None:
+        """1 long high beep (indicates processing)."""
         self.beep(1400, 0.75)
+
+    def result_success(self) -> None:
+        """2 short high beeps (success feedback)."""
+        # Use short durations for the two-tone success indication.
+        # (previously 0.9s which was too long / likely a typo)
+        self.beep_sequence(1400, 0.08, 2, 0.06)
 
     def result_error(self) -> None:
         """3 short high beeps (not_found / network_error / retry)."""
