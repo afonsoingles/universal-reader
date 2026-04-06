@@ -147,7 +147,12 @@ class WSClient:
                 if target in (ReaderState.READING, ReaderState.AWAITING_RESULT):
                     target = ReaderState.ACTIVE
                 logger.info("ws_restoring_state", f"Restoring from SYSTEM_FAILURE to {target}")
-                await self._sm.async_transition(target, "ws reconnected")
+                success = await self._sm.async_transition(target, "ws reconnected")
+                if success:
+                    logger.info("ws_restore_success", f"Successfully restored to {target}")
+                else:
+                    logger.error("ws_restore_failed", f"Failed to restore to {target}, forcing ACTIVE")
+                    await self._sm.async_transition(ReaderState.ACTIVE, "ws reconnected fallback")
             else:
                 # Even if not in SYSTEM_FAILURE, mark that we're connected
                 logger.info("ws_connection_alive", f"Current state: {self._sm.state}")
