@@ -52,7 +52,8 @@ async def run(config=None) -> None:
         if new_state == ReaderState.HIBERNATED:
             await loop.run_in_executor(None, lcd.off)
         elif new_state == ReaderState.ACTIVE:
-            await loop.run_in_executor(None, lcd.display, "Universal Reader", f"Reader {rn}", True)
+            # Start with backlight OFF when becoming active
+            await loop.run_in_executor(None, lcd.display, "Universal Reader", f"Reader {rn}", False)
         elif new_state == ReaderState.READING:
             await loop.run_in_executor(None, lcd.display, "Universal Reader", "Scan item...", True)
         elif new_state == ReaderState.AWAITING_RESULT:
@@ -137,11 +138,24 @@ async def run(config=None) -> None:
             await loop.run_in_executor(None, lcd.display, "\u26a0\ufe0f", "Read Error", True)
 
         async def _restore_lcd():
-            await asyncio.sleep(30)
+            # Shorter restore: go back to ACTIVE display after 5s
+            await asyncio.sleep(5)
             if sm.state == ReaderState.ACTIVE:
+                # Restore ACTIVE screen with backlight OFF
                 await loop.run_in_executor(
-                    None, lcd.display, "Universal Reader", f"Reader {rn}", True
+                    None, lcd.display, "Universal Reader", f"Reader {rn}", False
                 )
+
+                async def _hibernate_if_idle():
+                    # If nothing else happens in ACTIVE for another 5s, hibernate.
+                    await asyncio.sleep(5)
+                    # Do not hibernate if an explicit activate timeout task is running
+                    if sm.state == ReaderState.ACTIVE and (
+                        _activate_timeout_task is None or _activate_timeout_task.done()
+                    ):
+                        await sm.async_transition(ReaderState.HIBERNATED, "idle timeout")
+
+                asyncio.create_task(_hibernate_if_idle())
 
         asyncio.create_task(_restore_lcd())
 
