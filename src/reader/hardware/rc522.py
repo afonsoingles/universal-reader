@@ -49,6 +49,8 @@ class RC522Reader:
         self._thread: threading.Thread | None = None
         self._reader = None
         self._available = False
+        self._last_uid: str | None = None
+        self._last_uid_time: float = 0
 
         _install_stderr_filter()
 
@@ -106,8 +108,14 @@ class RC522Reader:
                     uid, _ = self._reader.read_no_block()
                     if uid is not None:
                         uid_str = format(uid, "X")
-                        logger.info("rc522_tag_detected", uid_str)
-                        self._on_scan(uid_str)
+                        current_time = time.time()
+                        
+                        # Debounce: ignore same UID within 0.5 seconds
+                        if uid_str != self._last_uid or (current_time - self._last_uid_time) > 0.5:
+                            logger.info("rc522_tag_detected", uid_str)
+                            self._on_scan(uid_str)
+                            self._last_uid = uid_str
+                            self._last_uid_time = current_time
                     # Log periodically to confirm loop is running
                     loop_count += 1
                     if loop_count % 50 == 0:  # Every 5 seconds (50 * 0.1s)

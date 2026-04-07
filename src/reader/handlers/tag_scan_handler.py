@@ -30,6 +30,7 @@ class TagScanHandler:
         self._buzzer = buzzer
         self._loop = loop
         self._ws_client: WSClient | None = None
+        self._server_timeout_task: asyncio.Task | None = None
 
     def set_ws_client(self, ws_client: WSClient) -> None:
         """Set the WebSocket client reference."""
@@ -52,6 +53,11 @@ class TagScanHandler:
 
     async def _handle_uid_scanned_async(self, uid: str) -> None:
         """Async handler for scanned UID."""
+        # Cancel any existing server timeout
+        if self._server_timeout_task and not self._server_timeout_task.done():
+            self._server_timeout_task.cancel()
+            logger.verbose("server_timeout_cancelled", "Cancelled existing server timeout")
+        
         await self._sm.async_transition(ReaderState.AWAITING_RESULT, "tag scanned")
         
         # Play processing beep
@@ -65,36 +71,40 @@ class TagScanHandler:
         # Set up server response timeout
         remaining = self._sm.remaining_timeout_seconds
         if remaining is not None and remaining > 0:
-            asyncio.create_task(self._handle_server_timeout(remaining))
+            self._server_timeout_task = asyncio.create_task(self._handle_server_timeout(remaining))
 
     async def _handle_server_timeout(self, remaining: int) -> None:
         """Handle timeout waiting for server response."""
-        logger.verbose("server_timeout_wait_start", f"Waiting {remaining}s for server response in AWAITING_RESULT")
-        await asyncio.sleep(remaining)
-        logger.verbose("server_timeout_wait_complete", f"Timeout period ({remaining}s) elapsed")
-        
-        if self._sm.state == ReaderState.AWAITING_RESULT:
-            logger.warn("server_timeout", f"No result within {remaining}s, state is still AWAITING_RESULT")
+        try:
+            logger.verbose("server_timeout_wait_start", f"Waiting {remaining}s for server response in AWAITING_RESULT")
+            await asyncio.sleep(remaining)
+            logger.verbose("server_timeout_wait_complete", f"Timeout period ({remaining}s) elapsed")
             
-            # Show timeout message
-            logger.verbose("server_timeout_show_message", "Displaying timeout message on LCD")
-            await self._loop.run_in_executor(None, self._lcd.display, "Sorry!", "Timed Out", True)
-            logger.verbose("server_timeout_show_message_complete", "Timeout message displayed")
-            
-            # Play error beep
-            logger.verbose("server_timeout_error_beep", "Playing error beep")
-            await self._loop.run_in_executor(None, self._buzzer.result_error)
-            logger.verbose("server_timeout_error_beep_complete", "Error beep finished")
-            
-            # Show message for 2 seconds
-            logger.verbose("server_timeout_display_sleep", "Showing message for 2s before hibernating")
-            await asyncio.sleep(2)
-            logger.verbose("server_timeout_display_sleep_complete", "Transitioning to HIBERNATED")
-            
-            # Transition to hibernated
-            logger.info("server_timeout_transitioning", "Transitioning to HIBERNATED...")
-            result = await self._sm.async_transition(ReaderState.HIBERNATED, "server timeout")
-            logger.verbose("server_timeout_transition_result", f"Transition result: {result}")
-            logger.info("server_timeout_hibernated", "Ready for new commands")
-        else:
-            logger.info("server_timeout_cancelled", f"State changed to {self._sm.state}, not transitioning")
+            if self._sm.state == ReaderState.AWAITING_RESULT:
+                logger.warn("server_timeout", f"No result within {remaining}s, state is still AWAITING_RESULT")
+                
+                # Show timeout message
+                logger.verbose("server_timeout_show_message", "Displaying timeout message on LCD")
+                await self._loop.run_in_executor(None, self._lcd.display, "Sorry!", "Timed Out", True)
+                logger.verbose("server_timeout_show_message_complete", "Timeout message displayed")
+                
+                # Play error beep
+                logger.verbose("server_timeout_error_beep", "Playing error beep")
+                await self._loop.run_in_executor(None, self._buzzer.result_error)
+                logger.verbose("server_timeout_error_beep_complete", "Error beep finished")
+                
+                # Show message for 2 seconds
+                logger.verbose("server_timeout_display_sleep", "Showing message for 2s before hibernating")
+                await asyncio.sleep(2)
+                logger.verbose("server_timeout_display_sleep_complete", "Transitioning to HIBERNATED")
+                
+                # Transition to hibernated
+                logger.info("server_timeout_transitioning", "Transitioning to HIBERNATED...")
+                result = await self._sm.async_transition(ReaderState.HIBERNATED, "server timeout")
+                logger.verbose("server_timeout_transition_result", f"Transition result: {result}")
+                logger.info("server_timeout_hibernated", "Ready for new commands")
+            else:
+                logger.info("server_timeout_cancelled", f"State changed to {self._sm.state}, not transitioning")
+        except asyncio.CancelledError:
+            logger.verbose("server_timeout_cancelled_exception", "Server timeout task was cancelled")
+            raise

@@ -32,6 +32,7 @@ class MessageHandlers:
         self._loop = loop
         self._ws_client = ws_client
         self._activate_timeout_task: asyncio.Task | None = None
+        self._reading_timeout_task: asyncio.Task | None = None
 
     async def set_ws_client(self, ws_client: WSClient) -> None:
         """Set the WebSocket client reference (called after initialization)."""
@@ -43,16 +44,18 @@ class MessageHandlers:
             self._activate_timeout_task.cancel()
         
         await self._sm.async_transition(ReaderState.ACTIVE, "activate")
-        logger.info("ws_activate", f"timeout={msg.timeout_seconds}s")
+        
+        # Use 30s default if server sends 0 (no timeout)
+        timeout = msg.timeout_seconds if msg.timeout_seconds > 0 else 30
+        logger.info("ws_activate", f"timeout={timeout}s")
         
         # Track the global activation timeout
-        self._sm.set_activation_timeout(msg.timeout_seconds)
+        self._sm.set_activation_timeout(timeout)
         
-        # Only create a timeout task if timeout > 0
-        if msg.timeout_seconds > 0:
-            self._activate_timeout_task = asyncio.create_task(
-                self._activate_timeout_cb(msg.timeout_seconds)
-            )
+        # Create timeout task (always, with default 30s)
+        self._activate_timeout_task = asyncio.create_task(
+            self._activate_timeout_cb(timeout)
+        )
 
     async def on_deactivate(self, msg: DeactivateMessage) -> None:
         """Handle deactivate message from server."""
@@ -67,13 +70,18 @@ class MessageHandlers:
 
     async def on_read(self, msg: ReadMessage) -> None:
         """Handle read message from server."""
+        # Cancel any existing reading timeout
+        if self._reading_timeout_task and not self._reading_timeout_task.done():
+            self._reading_timeout_task.cancel()
+            logger.verbose("reading_timeout_cancelled", "Cancelled existing reading timeout")
+        
         await self._sm.async_transition(ReaderState.READING, "read command")
         logger.info("ws_read", "entering READING state")
 
         # Start timeout for READING state
         remaining = self._sm.remaining_timeout_seconds
         if remaining is not None and remaining > 0:
-            asyncio.create_task(self._handle_reading_timeout(remaining))
+            self._reading_timeout_task = asyncio.create_task(self._handle_reading_timeout(remaining))
 
     async def on_result(self, msg: ResultMessage) -> None:
         """Handle result message from server."""
@@ -106,25 +114,33 @@ class MessageHandlers:
 
     async def _activate_timeout_cb(self, timeout: int) -> None:
         """Handle global activation timeout."""
-        await asyncio.sleep(timeout)
-        if self._sm.state == ReaderState.ACTIVE:
-            await self._sm.async_transition(ReaderState.HIBERNATED, "activate timeout")
-            logger.info("activate_timeout_expired")
+        try:
+            await asyncio.sleep(timeout)
+            if self._sm.state == ReaderState.ACTIVE:
+                await self._sm.async_transition(ReaderState.HIBERNATED, "activate timeout")
+                logger.info("activate_timeout_expired")
+        except asyncio.CancelledError:
+            logger.verbose("activate_timeout_cancelled", "Activate timeout task was cancelled")
+            raise
 
     async def _handle_reading_timeout(self, remaining: int) -> None:
         """Handle timeout while waiting for scan in READING state."""
-        await asyncio.sleep(remaining)
-        if self._sm.state == ReaderState.READING:
-            logger.warn("reading_timeout", f"No scan within {remaining}s")
-            await self._loop.run_in_executor(None, self._lcd.display, "Sorry!", "Timed Out", True)
-            await self._loop.run_in_executor(None, self._buzzer.result_error)
-            await asyncio.sleep(2)
-            # Must transition through AWAITING_RESULT before going to HIBERNATED
-            success = await self._sm.async_transition(ReaderState.AWAITING_RESULT, "reading timeout")
-            if success:
-                await self._sm.async_transition(ReaderState.HIBERNATED, "reading timeout")
-            else:
-                logger.warn("reading_timeout_transition_failed", f"Could not transition from READING")
+        try:
+            await asyncio.sleep(remaining)
+            if self._sm.state == ReaderState.READING:
+                logger.warn("reading_timeout", f"No scan within {remaining}s")
+                await self._loop.run_in_executor(None, self._lcd.display, "Sorry!", "Timed Out", True)
+                await self._loop.run_in_executor(None, self._buzzer.result_error)
+                await asyncio.sleep(2)
+                # Must transition through AWAITING_RESULT before going to HIBERNATED
+                success = await self._sm.async_transition(ReaderState.AWAITING_RESULT, "reading timeout")
+                if success:
+                    await self._sm.async_transition(ReaderState.HIBERNATED, "reading timeout")
+                else:
+                    logger.warn("reading_timeout_transition_failed", f"Could not transition from READING")
+        except asyncio.CancelledError:
+            logger.verbose("reading_timeout_cancelled_exception", "Reading timeout task was cancelled")
+            raise
 
     async def _restore_lcd_after_result(self, reader_number: str) -> None:
         """Restore LCD to ACTIVE display after result is shown."""
