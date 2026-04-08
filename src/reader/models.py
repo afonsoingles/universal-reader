@@ -98,6 +98,7 @@ class HardwareConfig(BaseModel):
     rc522_sck: int = 11
     rc522_sda: int = 8
     rc522_rst: int = 25
+    rc522_irq_pin: int = 17
 
 
 class AppConfig(BaseModel):

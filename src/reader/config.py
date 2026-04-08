@@ -25,6 +25,7 @@ def get_config() -> AppConfig:
         rc522_sck=int(os.getenv("RC522_SCK", "11")),
         rc522_sda=int(os.getenv("RC522_SDA", "8")),
         rc522_rst=int(os.getenv("RC522_RST", "25")),
+        rc522_irq_pin=int(os.getenv("RC522_IRQ_PIN", "17")),
     )
 
     return AppConfig(

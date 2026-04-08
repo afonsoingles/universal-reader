@@ -95,10 +95,19 @@ class RC522Reader:
             if self._thread.is_alive():
                 logger.warn("rc522_restart_thread_timeout", "Read thread did not exit in time")
         
+        # Clean up GPIO to reset SPI/GPIO state
+        try:
+            import RPi.GPIO as GPIO  # type: ignore[import]
+            logger.verbose("rc522_restart_gpio_cleanup", "Cleaning up GPIO before restart")
+            GPIO.cleanup()
+            logger.verbose("rc522_restart_gpio_cleanup_done", "GPIO cleanup complete")
+        except Exception as e:
+            logger.warn("rc522_restart_gpio_cleanup_error", str(e))
+        
         # Wait for hardware to settle
         import time
         logger.verbose("rc522_restart_settling", "Waiting for hardware to settle")
-        time.sleep(0.5)
+        time.sleep(1.0)
         
         # Reinitialize the reader library
         try:
