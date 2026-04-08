@@ -77,6 +77,55 @@ class RC522Reader:
     def stop(self) -> None:
         self._running = False
 
+    def reset(self) -> None:
+        """Reset the reader state and clear debounce cache."""
+        self._last_uid = None
+        self._last_uid_time = 0
+        logger.info("rc522_reset", "RC522 debounce state cleared")
+    
+    def restart(self) -> None:
+        """Restart the reader by reinitializing the mfrc522 library."""
+        logger.info("rc522_restart_start", "Restarting RC522 reader")
+        
+        # Stop current thread
+        self.stop()
+        
+        # Wait a bit for thread to exit
+        import time
+        time.sleep(0.2)
+        
+        # Reinitialize the reader library
+        try:
+            if self._reader is not None:
+                # Try to clean up old reader if possible
+                try:
+                    if hasattr(self._reader, 'READER'):
+                        self._reader.READER = None
+                except:
+                    pass
+                self._reader = None
+            
+            from mfrc522 import SimpleMFRC522  # type: ignore[import]
+            self._reader = SimpleMFRC522()
+            self._available = True
+            logger.info("rc522_restart_success", "RC522 reader reinitialized")
+        except Exception as exc:  # noqa: BLE001
+            logger.error("rc522_restart_failed", f"Failed to reinitialize: {exc}")
+            self._reader = None
+            self._available = False
+        
+        # Clear debounce state
+        self._last_uid = None
+        self._last_uid_time = 0
+        
+        # Restart the read loop
+        self.start()
+        logger.info("rc522_restart_complete", "RC522 reader restarted successfully")
+    
+    def is_running(self) -> bool:
+        """Check if the read loop is running."""
+        return self._running and self._thread is not None and self._thread.is_alive()
+
     def read_once(self) -> str | None:
         """Read a single tag UID synchronously (for debug mode). Returns UID or None."""
         if not self._available or self._reader is None:

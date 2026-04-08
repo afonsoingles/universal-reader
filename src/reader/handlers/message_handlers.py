@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from typing import TYPE_CHECKING
 
 from reader import logger
@@ -77,6 +78,17 @@ class MessageHandlers:
         
         await self._sm.async_transition(ReaderState.READING, "read command")
         logger.info("ws_read", "entering READING state")
+        
+        # Always restart RC522 to ensure clean state for each read
+        if hasattr(sys, "rc522_reader"):
+            rc522 = sys.rc522_reader  # type: ignore[attr-defined]
+            if rc522:
+                logger.info("ws_read_rc522_restart", "Restarting RC522 for clean read session")
+                await self._loop.run_in_executor(None, rc522.restart)
+            else:
+                logger.error("ws_read_rc522_missing", "RC522 reader not initialized")
+        else:
+            logger.warn("ws_read_rc522_not_in_sys", "RC522 reader not found in sys")
 
         # Start timeout for READING state
         remaining = self._sm.remaining_timeout_seconds
