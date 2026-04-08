@@ -88,38 +88,61 @@ class RC522Reader:
         logger.info("rc522_restart_start", "Restarting RC522 reader")
         
         # Stop current thread
-        self.stop()
+        self._running = False
+        if self._thread:
+            logger.verbose("rc522_restart_wait_thread", "Waiting for read thread to exit")
+            self._thread.join(timeout=1.0)
+            if self._thread.is_alive():
+                logger.warn("rc522_restart_thread_timeout", "Read thread did not exit in time")
         
-        # Wait a bit for thread to exit
+        # Wait for hardware to settle
         import time
-        time.sleep(0.2)
+        logger.verbose("rc522_restart_settling", "Waiting for hardware to settle")
+        time.sleep(0.5)
         
         # Reinitialize the reader library
         try:
+            # Try to clean up old reader if possible
             if self._reader is not None:
-                # Try to clean up old reader if possible
                 try:
-                    if hasattr(self._reader, 'READER'):
-                        self._reader.READER = None
-                except:
-                    pass
-                self._reader = None
+                    logger.verbose("rc522_restart_cleanup_old", "Cleaning up old reader instance")
+                    # Reset SPI/GPIO in the reader if possible
+                    if hasattr(self._reader, 'READER') and self._reader.READER:
+                        try:
+                            self._reader.READER.close()
+                        except:
+                            pass
+                    self._reader = None
+                except Exception as e:
+                    logger.warn("rc522_restart_cleanup_error", str(e))
+                    self._reader = None
             
+            logger.verbose("rc522_restart_init_new", "Initializing new reader instance")
             from mfrc522 import SimpleMFRC522  # type: ignore[import]
             self._reader = SimpleMFRC522()
             self._available = True
-            logger.info("rc522_restart_success", "RC522 reader reinitialized")
+            logger.info("rc522_restart_success", "RC522 reader reinitialized successfully")
         except Exception as exc:  # noqa: BLE001
-            logger.error("rc522_restart_failed", f"Failed to reinitialize: {exc}")
+            logger.error("rc522_restart_failed", f"Failed to reinitialize: {type(exc).__name__}: {exc}")
             self._reader = None
             self._available = False
+            return
         
         # Clear debounce state
         self._last_uid = None
         self._last_uid_time = 0
         
+        # Verify callback is set
+        if self._on_scan is None:
+            logger.error("rc522_restart_no_callback", "No callback set! Scan events won't be handled")
+        else:
+            logger.verbose("rc522_restart_callback_ok", "Callback is set")
+        
         # Restart the read loop
-        self.start()
+        logger.verbose("rc522_restart_starting_loop", "Starting read loop")
+        self._running = True
+        self._thread = threading.Thread(target=self._read_loop, daemon=True, name="rc522-reader")
+        self._thread.start()
         logger.info("rc522_restart_complete", "RC522 reader restarted successfully")
     
     def is_running(self) -> bool:
