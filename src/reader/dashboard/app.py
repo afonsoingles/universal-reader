@@ -1,57 +1,30 @@
-"""FastAPI dashboard application for the Universal Reader."""
+"""FastAPI dashboard application factory for the Universal Reader.
+
+The factory stores all shared objects on ``app.state`` so that routers can
+access them through ``request.app.state`` without requiring a global or
+closure-based injection.
+
+HTML pages (``/`` and ``/debug``) live here.  All REST API endpoints are
+served via the routers in ``dashboard/routers/``.
+"""
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
-import hmac
-import json
-import os
-import secrets
-import time
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
 
-from fastapi import FastAPI, Form, HTTPException, Query, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from reader import logger
-from reader.models import (
-    ActivateMessage,
-    DeactivateMessage,
-    ReadMessage,
-    ReaderState,
-    ReaderStatus,
-    ResultMessage,
-    UidScannedMessage,
-)
+from reader.dashboard.auth import hash_password, is_valid_session
+from reader.dashboard.deps import is_authenticated
+from reader.dashboard.routers.api import router as api_router
+from reader.dashboard.routers.auth import router as auth_router
+from reader.models import ReaderState
 from reader.state import StateManager
-
-if TYPE_CHECKING:
-    pass
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
-
-# PBKDF2 iterations — computationally expensive to deter brute-force
-_PBKDF2_ITERATIONS = 260_000
-_PBKDF2_SALT = os.urandom(16)
-
-
-def _hash_password(password: str) -> str:
-    """Hash a password with PBKDF2-HMAC-SHA256 (salt stored module-level at startup)."""
-    return hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode(),
-        _PBKDF2_SALT,
-        _PBKDF2_ITERATIONS,
-    ).hex()
-
-
-def _make_session_token(password_hash: str, secret: str) -> str:
-    return hmac.new(secret.encode(), password_hash.encode(), hashlib.sha256).hexdigest()
 
 
 def create_app(
@@ -66,71 +39,38 @@ def create_app(
     lcd,
     rc522,
 ) -> FastAPI:
+    """Create and configure the dashboard FastAPI application."""
     app = FastAPI(title="Universal Reader Dashboard", docs_url=None, redoc_url=None)
-    _secret = secrets.token_hex(32)
-    _pw_hash = _hash_password(config.dashboard_password)
-    _session_token = _make_session_token(_pw_hash, _secret)
 
     # ------------------------------------------------------------------
-    # Auth helpers
+    # Store shared objects on app.state for use in routers / deps
     # ------------------------------------------------------------------
-
-    def _is_authenticated(request: Request) -> bool:
-        token = request.cookies.get("session")
-        return token is not None and hmac.compare_digest(token, _session_token)
-
-    def _require_auth(request: Request) -> None:
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=303, headers={"Location": "/login"})
-
-    # ------------------------------------------------------------------
-    # Public endpoints
-    # ------------------------------------------------------------------
-
-    @app.get("/status")
-    async def status_endpoint() -> ReaderStatus:
-        sm = state_manager
-        return ReaderStatus(
-            state=sm.state.value,
-            reader_number=sm.reader_number,
-            ws_connected=sm.ws_connected,
-            uptime_seconds=sm.uptime_seconds,
-            last_scan=sm.last_scan,
-            locally_disabled=sm.locally_disabled,
-        )
+    app.state.sm = state_manager
+    app.state.config = config
+    app.state.ws_client = ws_client
+    app.state.buzzer = buzzer
+    app.state.lcd = lcd
+    app.state.rc522 = rc522
+    app.state.on_activate = on_activate
+    app.state.on_deactivate = on_deactivate
+    app.state.on_read = on_read
+    app.state.on_result = on_result
+    # Pre-compute hashed password once at startup
+    app.state.pw_hash = hash_password(config.dashboard_password)
 
     # ------------------------------------------------------------------
-    # Auth endpoints
+    # Routers
     # ------------------------------------------------------------------
-
-    @app.get("/login", response_class=HTMLResponse)
-    async def login_page(request: Request):
-        return templates.TemplateResponse(request, "login.html", {"error": None})
-
-    @app.post("/login")
-    async def login_post(request: Request, password: str = Form(...)):
-        if hmac.compare_digest(_hash_password(password), _pw_hash):
-            response = RedirectResponse(url="/", status_code=303)
-            response.set_cookie("session", _session_token, httponly=True, samesite="strict")
-            logger.info("dashboard_login", request.client.host if request.client else "unknown")
-            return response
-        return templates.TemplateResponse(
-            request, "login.html", {"error": "Invalid password"}, status_code=401
-        )
-
-    @app.get("/logout")
-    async def logout():
-        response = RedirectResponse(url="/login", status_code=303)
-        response.delete_cookie("session")
-        return response
+    app.include_router(auth_router)
+    app.include_router(api_router)
 
     # ------------------------------------------------------------------
-    # Dashboard (main)
+    # HTML page routes
     # ------------------------------------------------------------------
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request):
-        if not _is_authenticated(request):
+        if not is_authenticated(request):
             return RedirectResponse(url="/login", status_code=303)
         sm = state_manager
         context = {
@@ -143,120 +83,9 @@ def create_app(
         }
         return templates.TemplateResponse(request, "index.html", context)
 
-    # ------------------------------------------------------------------
-    # Log endpoint
-    # ------------------------------------------------------------------
-
-    @app.get("/logs")
-    async def logs_endpoint(
-        request: Request,
-        level: list[str] | None = Query(default=None),
-    ):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        allowed = {l.upper() for l in level} if level else None
-        entries = logger.get_entries(levels=allowed)
-        return [e.model_dump(mode="json") for e in entries]
-
-    @app.post("/logs/clear")
-    async def clear_logs(request: Request):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        logger.clear()
-        logger.info("dashboard_logs_cleared")
-        return {"ok": True}
-
-    # ------------------------------------------------------------------
-    # Action endpoints
-    # ------------------------------------------------------------------
-
-    @app.post("/action/disable")
-    async def action_disable(request: Request):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        await state_manager.async_transition(ReaderState.LOCALLY_DISABLED, "dashboard disable")
-        logger.info("dashboard_disable")
-        return {"ok": True}
-
-    @app.post("/action/enable")
-    async def action_enable(request: Request):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        if state_manager.state != ReaderState.LOCALLY_DISABLED:
-            raise HTTPException(status_code=400, detail="Not locally disabled")
-        await state_manager.async_transition(ReaderState.ACTIVE, "dashboard re-enable")
-        logger.info("dashboard_enable")
-        return {"ok": True}
-
-    @app.post("/action/test-buzzer")
-    async def action_test_buzzer(request: Request):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        logger.info("dashboard_test_buzzer")
-
-        async def _run():
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, buzzer.reading_start)
-            await asyncio.sleep(0.5)
-            await loop.run_in_executor(None, buzzer.result_success)
-            await asyncio.sleep(1.0)
-            await loop.run_in_executor(None, buzzer.result_error)
-
-        asyncio.create_task(_run())
-        return {"ok": True}
-
-    @app.post("/action/test-lcd")
-    async def action_test_lcd(request: Request):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        logger.info("dashboard_test_lcd")
-
-        async def _run():
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, lcd.display, "  LCD Test  ", "  Pattern   ", True)
-            await asyncio.sleep(3)
-            # Restore current state display — trigger state callback
-            await _refresh_lcd()
-
-        asyncio.create_task(_run())
-        return {"ok": True}
-
-    async def _refresh_lcd():
-        """Re-render LCD to match current state."""
-        sm = state_manager
-        loop = asyncio.get_event_loop()
-        rn = sm.reader_number or "?"
-        state = sm.state
-        if state == ReaderState.HIBERNATED:
-            await loop.run_in_executor(None, lcd.off)
-        elif state == ReaderState.ACTIVE:
-            await loop.run_in_executor(None, lcd.display, "Universal Reader", f"Reader {rn}", True)
-        elif state == ReaderState.READING:
-            await loop.run_in_executor(None, lcd.display, "Universal Reader", "Scan item...", True)
-        elif state == ReaderState.AWAITING_RESULT:
-            await loop.run_in_executor(None, lcd.display, "Universal Reader", "Processing...", True)
-        elif state == ReaderState.SYSTEM_FAILURE:
-            await loop.run_in_executor(None, lcd.display, "Sorry!", "System Failure", True)
-        elif state == ReaderState.LOCALLY_DISABLED:
-            await loop.run_in_executor(None, lcd.display, "Sorry!", "Reader Disabled", True)
-
-    @app.post("/action/force-reconnect")
-    async def action_force_reconnect(request: Request):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        logger.info("dashboard_force_reconnect")
-        state_manager.reconnect_attempts = 0
-        if state_manager.state != ReaderState.LOCALLY_DISABLED:
-            await state_manager.async_transition(ReaderState.SYSTEM_FAILURE, "dashboard force reconnect")
-        return {"ok": True}
-
-    # ------------------------------------------------------------------
-    # Debug page
-    # ------------------------------------------------------------------
-
     @app.get("/debug", response_class=HTMLResponse)
     async def debug_page(request: Request):
-        if not _is_authenticated(request):
+        if not is_authenticated(request):
             return RedirectResponse(url="/login", status_code=303)
         sm = state_manager
         context = {
@@ -267,121 +96,5 @@ def create_app(
             "last_uid": sm.last_uid,
         }
         return templates.TemplateResponse(request, "debug.html", context)
-
-    @app.get("/debug/state")
-    async def debug_state(request: Request):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        sm = state_manager
-        return {
-            "state": sm.state.value,
-            "reader_number": sm.reader_number,
-            "ws_connected": sm.ws_connected,
-            "last_uid": sm.last_uid,
-            "reconnect_attempts": sm.reconnect_attempts,
-            "uptime_seconds": round(sm.uptime_seconds, 1),
-            "locally_disabled": sm.locally_disabled,
-        }
-
-    @app.post("/debug/read-uid")
-    async def debug_read_uid(request: Request):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        if state_manager.state in (ReaderState.READING, ReaderState.AWAITING_RESULT):
-            raise HTTPException(status_code=409, detail="Scan in progress — cannot use debug read")
-        loop = asyncio.get_event_loop()
-        uid = await loop.run_in_executor(None, rc522.read_once)
-        logger.info("debug_read_uid", f"uid={uid}")
-        return {"uid": uid}
-
-    @app.post("/debug/simulate")
-    async def debug_simulate(request: Request, body: dict[str, Any] = None):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        if body is None:
-            body = await request.json()
-        msg_type = body.get("type")
-        logger.info("debug_simulate", str(body))
-
-        if msg_type == "activate":
-            timeout = int(body.get("timeout_seconds", 30))
-            await on_activate(ActivateMessage(type="activate", timeout_seconds=timeout))
-        elif msg_type == "deactivate":
-            await on_deactivate(DeactivateMessage(type="deactivate"))
-        elif msg_type == "read":
-            if state_manager.state in (ReaderState.READING, ReaderState.AWAITING_RESULT):
-                raise HTTPException(status_code=409, detail="Scan in progress")
-            await on_read(ReadMessage(type="read"))
-        elif msg_type == "result":
-            status = body.get("status", "success")
-            item_id = body.get("item_id")
-            await on_result(ResultMessage(type="result", status=status, item_id=item_id))
-        elif msg_type == "uid_scanned":
-            uid = str(body.get("uid", "DEADBEEF"))
-            if state_manager.state != ReaderState.READING:
-                raise HTTPException(status_code=409, detail="Must be in READING state")
-            state_manager.record_scan(uid)
-            logger.info("debug_uid_scanned", uid)
-            await state_manager.async_transition(ReaderState.AWAITING_RESULT, "debug uid scan")
-            if ws_client is not None and ws_client._ws is not None:
-                await ws_client.send_model(UidScannedMessage(uid=uid))
-        elif msg_type == "system_failure":
-            await state_manager.async_transition(ReaderState.SYSTEM_FAILURE, "debug simulate")
-        else:
-            raise HTTPException(status_code=400, detail=f"Unknown simulate type: {msg_type}")
-
-        return {"ok": True}
-
-    @app.post("/debug/buzzer-tone")
-    async def debug_buzzer_tone(request: Request):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        body = await request.json()
-        freq = int(body.get("freq", 1000))
-        duration = float(body.get("duration", 0.3))
-        logger.info("debug_buzzer_tone", f"freq={freq} duration={duration}")
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, buzzer.beep, freq, duration)
-        return {"ok": True}
-
-    @app.post("/debug/buzzer-pattern")
-    async def debug_buzzer_pattern(request: Request):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        body = await request.json()
-        pattern = str(body.get("pattern", "reading_start"))
-        logger.info("debug_buzzer_pattern", pattern)
-        loop = asyncio.get_event_loop()
-        if pattern == "reading_start":
-            await loop.run_in_executor(None, buzzer.reading_start)
-        elif pattern == "result_success":
-            await loop.run_in_executor(None, buzzer.result_success)
-        elif pattern == "result_error":
-            await loop.run_in_executor(None, buzzer.result_error)
-        else:
-            raise HTTPException(status_code=400, detail=f"Unknown pattern: {pattern!r}")
-        return {"ok": True}
-
-    @app.get("/debug/hardware")
-    async def debug_hardware(request: Request):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        return {
-            "lcd": {"available": lcd._available},
-            "buzzer": {"available": buzzer._available},
-            "rc522": {"available": rc522._available},
-        }
-
-    @app.post("/debug/lcd-custom")
-    async def debug_lcd_custom(request: Request):
-        if not _is_authenticated(request):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        body = await request.json()
-        line1 = str(body.get("line1", ""))
-        line2 = str(body.get("line2", ""))
-        logger.info("debug_lcd_custom", f"line1={line1!r} line2={line2!r}")
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lcd.display, line1, line2, True)
-        return {"ok": True}
 
     return app
