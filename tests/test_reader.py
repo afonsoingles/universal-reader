@@ -357,6 +357,8 @@ class TestConfig:
 
 
 class MockBuzzer:
+    _available = True
+
     def beep(self, *a):
         pass
 
@@ -374,6 +376,8 @@ class MockBuzzer:
 
 
 class MockLCD:
+    _available = True
+
     def display(self, *a):
         pass
 
@@ -382,6 +386,8 @@ class MockLCD:
 
 
 class MockRC522:
+    _available = True
+
     def read_once(self):
         return "AABBCCDD"
 
@@ -437,7 +443,7 @@ def client(app_and_sm):
 class TestDashboardAPI:
     def test_status_endpoint(self, client):
         c, sm = client
-        r = c.get("/status")
+        r = c.get("/api/v1/status")
         assert r.status_code == 200
         data = r.json()
         assert data["state"] == "HIBERNATED"
@@ -469,27 +475,27 @@ class TestDashboardAPI:
 
     def test_logs_requires_auth(self, client):
         c, _ = client
-        r = c.get("/logs")
+        r = c.get("/api/v1/logs")
         assert r.status_code == 401
 
     def test_logs_with_auth(self, client):
         c, _ = client
         # Login
         c.post("/login", data={"password": "testpass"})
-        r = c.get("/logs")
+        r = c.get("/api/v1/logs")
         assert r.status_code == 200
         assert isinstance(r.json(), list)
 
     def test_action_disable_requires_auth(self, client):
         c, _ = client
-        r = c.post("/action/disable")
+        r = c.post("/api/v1/reader/disable")
         assert r.status_code == 401
 
     def test_action_disable_with_auth(self, client):
         c, sm = client
         sm.transition(ReaderState.ACTIVE)
         c.post("/login", data={"password": "testpass"})
-        r = c.post("/action/disable")
+        r = c.post("/api/v1/reader/disable")
         assert r.status_code == 200
         assert sm.state == ReaderState.LOCALLY_DISABLED
 
@@ -498,7 +504,7 @@ class TestDashboardAPI:
         sm.transition(ReaderState.ACTIVE)
         c.post("/login", data={"password": "testpass"})
         # Can't enable when not disabled
-        r = c.post("/action/enable")
+        r = c.post("/api/v1/reader/enable")
         assert r.status_code == 400
 
     def test_action_enable_from_disabled(self, client):
@@ -506,14 +512,14 @@ class TestDashboardAPI:
         sm.transition(ReaderState.ACTIVE)
         sm.transition(ReaderState.LOCALLY_DISABLED)
         c.post("/login", data={"password": "testpass"})
-        r = c.post("/action/enable")
+        r = c.post("/api/v1/reader/enable")
         assert r.status_code == 200
         assert sm.state == ReaderState.ACTIVE
 
     def test_debug_state_endpoint(self, client):
         c, sm = client
         c.post("/login", data={"password": "testpass"})
-        r = c.get("/debug/state")
+        r = c.get("/api/v1/debug/state")
         assert r.status_code == 200
         data = r.json()
         assert "state" in data
@@ -524,7 +530,7 @@ class TestDashboardAPI:
         c, sm = client
         c.post("/login", data={"password": "testpass"})
         r = c.post(
-            "/debug/simulate",
+            "/api/v1/debug/simulate",
             json={"type": "activate", "timeout_seconds": 60},
         )
         assert r.status_code == 200
@@ -534,13 +540,13 @@ class TestDashboardAPI:
         c, sm = client
         sm.transition(ReaderState.ACTIVE)
         c.post("/login", data={"password": "testpass"})
-        r = c.post("/debug/simulate", json={"type": "deactivate"})
+        r = c.post("/api/v1/debug/simulate", json={"type": "deactivate"})
         assert r.status_code == 200
 
     def test_simulate_unknown_type(self, client):
         c, _ = client
         c.post("/login", data={"password": "testpass"})
-        r = c.post("/debug/simulate", json={"type": "unknown_xyz"})
+        r = c.post("/api/v1/debug/simulate", json={"type": "unknown_xyz"})
         assert r.status_code == 400
 
     def test_clear_logs(self, client):
@@ -549,7 +555,7 @@ class TestDashboardAPI:
 
         log.info("test")
         c.post("/login", data={"password": "testpass"})
-        r = c.post("/logs/clear")
+        r = c.delete("/api/v1/logs")
         assert r.status_code == 200
         # After clearing, there should only be the "dashboard_logs_cleared" entry
         entries = log.get_entries()
@@ -559,7 +565,7 @@ class TestDashboardAPI:
         c, sm = client
         sm.transition(ReaderState.ACTIVE)
         c.post("/login", data={"password": "testpass"})
-        r = c.post("/debug/read-uid")
+        r = c.post("/api/v1/debug/uid")
         assert r.status_code == 200
         data = r.json()
         assert "uid" in data
@@ -569,5 +575,5 @@ class TestDashboardAPI:
         sm.transition(ReaderState.ACTIVE)
         sm.transition(ReaderState.READING)
         c.post("/login", data={"password": "testpass"})
-        r = c.post("/debug/read-uid")
+        r = c.post("/api/v1/debug/uid")
         assert r.status_code == 409

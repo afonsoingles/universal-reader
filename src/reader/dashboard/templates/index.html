@@ -49,14 +49,14 @@
 <h2>Actions</h2>
 <div class="card">
     <div class="actions">
-        <button class="btn btn-danger" onclick="postAction('/action/disable')"
+        <button class="btn btn-danger" onclick="postAction('/api/v1/reader/disable')"
             {% if locally_disabled %}disabled{% endif %}>Disable</button>
-        <button class="btn btn-success" onclick="postAction('/action/enable')"
+        <button class="btn btn-success" onclick="postAction('/api/v1/reader/enable')"
             {% if not locally_disabled %}disabled{% endif %}>Re-enable</button>
-        <button class="btn btn-secondary" onclick="postAction('/action/test-buzzer')">Test Buzzer</button>
-        <button class="btn btn-secondary" onclick="postAction('/action/test-lcd')">Test LCD</button>
-        <button class="btn btn-warning" onclick="postAction('/action/force-reconnect')">Force Reconnect</button>
-        <button class="btn btn-secondary" onclick="postAction('/logs/clear')">Clear Logs</button>
+        <button class="btn btn-secondary" onclick="postAction('/api/v1/hardware/buzzer/test')">Test Buzzer</button>
+        <button class="btn btn-secondary" onclick="postAction('/api/v1/hardware/lcd/test')">Test LCD</button>
+        <button class="btn btn-warning" onclick="postAction('/api/v1/reader/reconnect')">Force Reconnect</button>
+        <button class="btn btn-secondary" onclick="clearLogs()">Clear Logs</button>
     </div>
 </div>
 
@@ -100,9 +100,16 @@ function postAction(url) {
         .catch(e => alert('Error: ' + e));
 }
 
+function clearLogs() {
+    fetch('/api/v1/logs', { method: 'DELETE' })
+        .then(r => r.json())
+        .then(() => refreshLogs())
+        .catch(e => alert('Error: ' + e));
+}
+
 async function refreshStatus() {
     try {
-        const r = await fetch('/status');
+        const r = await fetch('/api/v1/status');
         if (!r.ok) return;
         const d = await r.json();
         const stateEl = document.getElementById('stat-state');
@@ -143,7 +150,7 @@ function setLogFilter(level, btn) {
 
 async function refreshLogs() {
     try {
-        const url = _logFilter ? `/logs?level=${_logFilter}` : '/logs';
+        const url = _logFilter ? `/api/v1/logs?level=${_logFilter}` : '/api/v1/logs';
         const r = await fetch(url);
         if (r.ok) {
             const data = await r.json();
